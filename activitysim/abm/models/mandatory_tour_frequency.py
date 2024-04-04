@@ -134,6 +134,7 @@ def mandatory_tour_frequency(
         trace_label=trace_label,
         trace_choice_name="mandatory_tour_frequency",
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     # convert indexes to alternative names

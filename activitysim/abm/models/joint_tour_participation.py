@@ -418,6 +418,7 @@ def joint_tour_participation(
         trace_choice_name="participation",
         custom_chooser=participants_chooser,
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     # choice is boolean (participate or not)

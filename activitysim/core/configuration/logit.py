@@ -133,6 +133,16 @@ class LogitComponentSettings(BaseLogitComponentSettings):
                 raise ValueError("NESTS cannot be provided for a MNL model")
         return nests
 
+    overflow_protection: bool = False
+    """Whether to use overflow protection in the probability calculation.
+
+    Overflow protection will shift the utility values to avoid numerical
+    overflow when exponentiating the utility values to calculate probabilities.
+    It will also protect against underflow if the utility values are very
+    negative.  Ideally, model specifications will be constructed to avoid
+    overflow, but this option is provided as a safety net.
+    """
+
 
 class TemplatedLogitComponentSettings(LogitComponentSettings):
     """

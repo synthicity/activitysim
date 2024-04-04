@@ -31,6 +31,7 @@ def _interaction_sample_simulate(
     skip_choice=False,
     *,
     chunk_sizer: chunk.ChunkSizer,
+    overflow_protection: bool | None = None,
 ):
     """
     Run a MNL simulation in the situation in which alternatives must
@@ -71,6 +72,15 @@ def _interaction_sample_simulate(
         series with the alternative chosen for each chooser
         the index is same as choosers
         and the series value is the alternative df index of chosen alternative
+
+    overflow_protection : bool, optional
+        If True, use overflow-protected exponentiation and normalization to
+        compute probabilities, which will help prevent problems if the utility
+        values are very large in magnitude (positive or negative).  If False,
+        overflow-protected exponentiation and normalization will not be used,
+        and the model might fail if the utility values are very large in magnitude.
+        If None (the default), overflow-protection is turned on if
+        `allow_zero_probs` is False, and left off otherwise.
 
     Returns
     -------
@@ -251,6 +261,9 @@ def _interaction_sample_simulate(
             column_labels=["alternative", "utility"],
         )
 
+    if overflow_protection is None:
+        overflow_protection = not allow_zero_probs
+
     # convert to probabilities (utilities exponentiated and normalized to probs)
     # probs is same shape as utilities, one row per chooser and one column for alternative
     if want_logsums:
@@ -260,7 +273,7 @@ def _interaction_sample_simulate(
             allow_zero_probs=allow_zero_probs,
             trace_label=trace_label,
             trace_choosers=choosers,
-            overflow_protection=not allow_zero_probs,
+            overflow_protection=overflow_protection,
             return_logsums=True,
         )
         chunk_sizer.log_df(trace_label, "logsums", logsums)
@@ -271,7 +284,7 @@ def _interaction_sample_simulate(
             allow_zero_probs=allow_zero_probs,
             trace_label=trace_label,
             trace_choosers=choosers,
-            overflow_protection=not allow_zero_probs,
+            overflow_protection=overflow_protection,
         )
     chunk_sizer.log_df(trace_label, "probs", probs)
 

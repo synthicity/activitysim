@@ -117,6 +117,7 @@ def atwork_subtour_frequency(
         trace_label=trace_label,
         trace_choice_name="atwork_subtour_frequency",
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     # convert indexes to alternative names

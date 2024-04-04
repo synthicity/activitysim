@@ -34,6 +34,7 @@ def mode_choice_simulate(
     trace_choice_name,
     trace_column_names=None,
     estimator: Optional[Estimator] = None,
+    overflow_protection: bool = False,
 ):
     """
     common method for  both tour_mode_choice and trip_mode_choice
@@ -70,6 +71,7 @@ def mode_choice_simulate(
         trace_choice_name=trace_choice_name,
         estimator=estimator,
         trace_column_names=trace_column_names,
+        overflow_protection=overflow_protection,
     )
 
     # for consistency, always return dataframe, whether or not logsums were requested
@@ -170,6 +172,7 @@ def run_tour_mode_choice_simulate(
         trace_choice_name=trace_choice_name,
         trace_column_names=trace_column_names,
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     return choices

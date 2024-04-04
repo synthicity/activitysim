@@ -277,6 +277,7 @@ def trip_mode_choice(
             trace_label=segment_trace_label,
             trace_choice_name="trip_mode_choice",
             estimator=estimator,
+            overflow_protection=model_settings.overflow_protection,
         )
 
         if state.settings.trace_hh_id:

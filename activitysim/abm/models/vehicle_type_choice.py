@@ -500,6 +500,7 @@ def iterate_vehicle_type_choice(
                 trace_label=trace_label,
                 trace_choice_name="vehicle_type",
                 estimator=estimator,
+                overflow_protection=model_settings.overflow_protection,
             )
         else:
             raise NotImplementedError(simulation_type)

@@ -92,6 +92,7 @@ def transit_pass_subsidy(
         trace_label=trace_label,
         trace_choice_name="transit_pass_subsidy",
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     if estimator:

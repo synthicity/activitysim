@@ -131,7 +131,7 @@ def utils_to_probs(
     exponentiated=False,
     allow_zero_probs=False,
     trace_choosers=None,
-    overflow_protection: bool = True,
+    overflow_protection: bool = False,
     return_logsums: bool = False,
 ):
     """
@@ -158,7 +158,7 @@ def utils_to_probs(
         by report_bad_choices because it can't deduce hh_id from the interaction_dataset
         which is indexed on index values from alternatives df
 
-    overflow_protection : bool, default True
+    overflow_protection : bool, default False
         Always shift utility values such that the maximum utility in each row is
         zero.  This constant per-row shift should not fundamentally alter the
         computed probabilities, but will ensure that an overflow does not occur
@@ -194,10 +194,8 @@ def utils_to_probs(
                 raise ValueError(
                     "cannot prevent expected overflow with allow_zero_probs"
                 )
-    else:
-        overflow_protection = overflow_protection or (
-            utils_arr.dtype == np.float32 and utils_arr.max() > 85
-        )
+    elif overflow_protection is None:
+        overflow_protection = utils_arr.dtype == np.float32 and utils_arr.max() > 85
 
     if overflow_protection:
         # exponentiated utils will overflow, downshift them

@@ -123,6 +123,7 @@ def joint_tour_composition(
         trace_label=trace_label,
         trace_choice_name="composition",
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     # convert indexes to alternative names

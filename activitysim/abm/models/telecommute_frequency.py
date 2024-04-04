@@ -99,6 +99,7 @@ def telecommute_frequency(
         trace_label=trace_label,
         trace_choice_name="telecommute_frequency",
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     choices = pd.Series(model_spec.columns[choices.values], index=choices.index)

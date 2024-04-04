@@ -99,6 +99,7 @@ def auto_ownership_simulate(
         trace_choice_name="auto_ownership",
         log_alt_losers=log_alt_losers,
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     if estimator:

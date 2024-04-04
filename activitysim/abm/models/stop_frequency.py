@@ -214,6 +214,7 @@ def stop_frequency(
             trace_label=tracing.extend_trace_label(trace_label, segment_name),
             trace_choice_name="stops",
             estimator=estimator,
+            overflow_protection=model_settings.overflow_protection,
         )
 
         # convert indexes to alternative names

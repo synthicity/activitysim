@@ -118,6 +118,7 @@ def free_parking(
         trace_label=trace_label,
         trace_choice_name="free_parking_at_work",
         estimator=estimator,
+        overflow_protection=model_settings.overflow_protection,
     )
 
     free_parking_alt = model_settings.FREE_PARKING_ALT

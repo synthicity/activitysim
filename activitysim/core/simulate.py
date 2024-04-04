@@ -1157,6 +1157,7 @@ def eval_mnl(
     trace_column_names=None,
     *,
     chunk_sizer,
+    overflow_protection: bool = False,
 ):
     """
     Run a simulation for when the model spec does not involve alternative
@@ -1192,6 +1193,20 @@ def eval_mnl(
         This is the column label to be used in trace file csv dump of choices
     trace_column_names: str or list of str
         chooser columns to include when tracing expression_values
+    overflow_protection: bool, default False
+        Always shift utility values such that the maximum utility in each row is
+        zero.  This constant per-row shift should not fundamentally alter the
+        computed probabilities, but will ensure that an overflow does not occur
+        that will create infinite or NaN values.  This will also provide effective
+        protection against underflow; extremely rare probabilities will round to
+        zero, but by definition they are extremely rare and losing them entirely
+        should not impact the simulation in a measurable fashion, and at least one
+        (and sometimes only one) alternative is guaranteed to have non-zero
+        probability, as long as at least one alternative has a finite utility value.
+        If utility values are certain to be well-behaved and non-extreme, enabling
+        overflow_protection will have no benefit but impose a modest computational
+        overhead cost. Overflow protection is automatically activated if the utility
+        array dtype is float32 and the maximum value is greater than 85.
 
     Returns
     -------
@@ -1231,7 +1246,11 @@ def eval_mnl(
         )
 
     probs = logit.utils_to_probs(
-        state, utilities, trace_label=trace_label, trace_choosers=choosers
+        state,
+        utilities,
+        trace_label=trace_label,
+        trace_choosers=choosers,
+        overflow_protection=overflow_protection,
     )
     chunk_sizer.log_df(trace_label, "probs", probs)
 
@@ -1278,6 +1297,7 @@ def eval_nl(
     trace_column_names=None,
     *,
     chunk_sizer: chunk.ChunkSizer,
+    overflow_protection: bool = False,
 ):
     """
     Run a nested-logit simulation for when the model spec does not involve alternative
@@ -1308,6 +1328,21 @@ def eval_nl(
         This is the column label to be used in trace file csv dump of choices
     trace_column_names: str or list of str
         chooser columns to include when tracing expression_values
+    overflow_protection: bool, default False
+        Always shift utility values such that the maximum utility in each row is
+        zero.  This constant per-row shift should not fundamentally alter the
+        computed probabilities, but will ensure that an overflow does not occur
+        that will create infinite or NaN values.  This will also provide effective
+        protection against underflow; extremely rare probabilities will round to
+        zero, but by definition they are extremely rare and losing them entirely
+        should not impact the simulation in a measurable fashion, and at least one
+        (and sometimes only one) alternative is guaranteed to have non-zero
+        probability, as long as at least one alternative has a finite utility value.
+        If utility values are certain to be well-behaved and non-extreme, enabling
+        overflow_protection will have no benefit but impose a modest computational
+        overhead cost.  Overflow protection is automatically activated even when
+        this setting is False if the utility array dtype is float32 and the
+        maximum value is greater than 85.
 
     Returns
     -------
@@ -1349,6 +1384,30 @@ def eval_nl(
             column_labels=["alternative", "utility"],
         )
 
+    overflow_protection = overflow_protection or (
+        raw_utilities.to_numpy().dtype == np.float32 and raw_utilities.max() > 85
+    )
+
+    if overflow_protection:
+        # exponentiated utils may overflow, downshift them
+        shifts = raw_utilities.to_numpy().max(1, keepdims=True)
+        if shifts.min() < -85:
+            n_bad = (shifts < -85).sum()
+            selected_bad = raw_utilities.index[np.where(shifts < -85)[0]]
+            warnings.warn(
+                f"overflow protection is making {n_bad} choices for "
+                "choosers who appear to have no valid alternatives",
+                category=RuntimeWarning,
+            )
+            logger.warning(
+                f"overflow protection is making {n_bad} choices for "
+                "choosers who appear to have no valid alternatives, "
+                f"including choosers at these indices: {selected_bad}"
+            )
+        raw_utilities -= shifts
+    else:
+        shifts = None
+
     # exponentiated utilities of leaves and nests
     nested_exp_utilities = compute_nested_exp_utilities(raw_utilities, nest_spec)
     chunk_sizer.log_df(trace_label, "nested_exp_utilities", nested_exp_utilities)
@@ -1371,7 +1430,10 @@ def eval_nl(
 
     if want_logsums:
         # logsum of nest root
-        logsums = pd.Series(np.log(nested_exp_utilities.root), index=choosers.index)
+        logsums = np.log(nested_exp_utilities.root)
+        if shifts is not None:
+            logsums += np.squeeze(shifts, 1)
+        logsums = pd.Series(logsums, index=choosers.index)
         chunk_sizer.log_df(trace_label, "logsums", logsums)
 
     del nested_exp_utilities
@@ -1465,6 +1527,7 @@ def _simple_simulate(
     trace_column_names=None,
     *,
     chunk_sizer,
+    overflow_protection: bool = False,
 ):
     """
     Run an MNL or NL simulation for when the model spec does not involve alternative
@@ -1528,6 +1591,7 @@ def _simple_simulate(
             trace_choice_name=trace_choice_name,
             trace_column_names=trace_column_names,
             chunk_sizer=chunk_sizer,
+            overflow_protection=overflow_protection,
         )
     else:
         choices = eval_nl(
@@ -1544,6 +1608,7 @@ def _simple_simulate(
             trace_choice_name=trace_choice_name,
             trace_column_names=trace_column_names,
             chunk_sizer=chunk_sizer,
+            overflow_protection=overflow_protection,
         )
 
     return choices
@@ -1582,6 +1647,7 @@ def simple_simulate(
     trace_label=None,
     trace_choice_name=None,
     trace_column_names=None,
+    overflow_protection: bool = False,
 ):
     """
     Run an MNL or NL simulation for when the model spec does not involve alternative
@@ -1616,6 +1682,7 @@ def simple_simulate(
             trace_choice_name=trace_choice_name,
             trace_column_names=trace_column_names,
             chunk_sizer=chunk_sizer,
+            overflow_protection=overflow_protection,
         )
 
         result_list.append(choices)
@@ -1643,6 +1710,7 @@ def simple_simulate_by_chunk_id(
     estimator=None,
     trace_label=None,
     trace_choice_name=None,
+    overflow_protection: bool = False,
 ):
     """
     chunk_by_chunk_id wrapper for simple_simulate
@@ -1669,6 +1737,7 @@ def simple_simulate_by_chunk_id(
             trace_label=chunk_trace_label,
             trace_choice_name=trace_choice_name,
             chunk_sizer=chunk_sizer,
+            overflow_protection=overflow_protection,
         )
 
         result_list.append(choices)
