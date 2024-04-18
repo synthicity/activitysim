@@ -18,13 +18,13 @@ dependencies:
 - openmatrix = 0.3.5.0
 - orca = 1.8
 - pandera >= 0.15, <0.18.1
-- pandas = 1.4.*
+- pandas = 2.2.*
 - platformdirs = 3.2.*
 - psutil = 5.9.*
 - pyarrow = 11.*
 - pydantic = 2.6.*
 - pypyr = 5.8.*
-- pytables >= 3.7
+- pytables >= 3.9
 - pytest = 7.2.*
 - pytest-cov
 - pytest-regressions
@@ -32,9 +32,9 @@ dependencies:
 - requests = 2.28.*
 - ruff
 - scikit-learn = 1.2.*
-- sharrow >= 2.6.0
+- sharrow >= 2.7.0
 - simwrapper > 1.7
 - sparse
-- xarray = 2023.2.*
+- xarray >= 2023.2
 - zarr = 2.14.*
 - zstandard

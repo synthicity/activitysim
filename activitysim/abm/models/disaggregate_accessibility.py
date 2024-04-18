@@ -569,7 +569,7 @@ class ProtoPop:
         _expanded = pd.DataFrame(util.named_product(**index_params)).set_index("index")
 
         # Use result to join template onto expanded table of zones
-        ex_table = _expanded.join(master_template).reset_index()
+        ex_table = _expanded.join(master_template).sort_index().reset_index()
 
         # Concatenate a new unique set of ids
         cols = ["home_zone_id", "proto_household_id", "proto_person_id"]
@@ -642,7 +642,9 @@ class ProtoPop:
                 .set_index("index")
                 .rename(columns={"hhid": hhid})
             )
-            persons = rep.join(persons).sort_values(hhid).reset_index(drop=True)
+            persons = (
+                rep.join(persons, sort=True).sort_values(hhid).reset_index(drop=True)
+            )
             persons[perid] = persons.index + 1
 
             # Assign persons to tours
@@ -718,6 +720,7 @@ class ProtoPop:
 
         perid = self.params["proto_persons"]["index_col"]
         persons_merged.set_index(perid, inplace=True, drop=True)
+        persons_merged = persons_merged.sort_index()
         self.proto_pop["proto_persons_merged"] = persons_merged
 
         # Store in pipeline

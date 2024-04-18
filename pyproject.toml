@@ -15,7 +15,7 @@ dependencies = [
     "numpy >= 1.16.1",
     "openmatrix >= 0.3.4.1",
     "orca >= 1.6",
-    "pandas >= 1.4, <2",
+    "pandas >= 2.2",
     "platformdirs",
     "psutil >= 4.1",
     "pyarrow >= 2.0",

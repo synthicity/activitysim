@@ -386,7 +386,7 @@ def choose_tour_leg_pattern(
 
 
 def apply_stage_two_model(state, omnibus_spec, trips, chunk_size, trace_label):
-    if not trips.index.is_monotonic:
+    if not trips.index.is_monotonic_increasing:
         trips = trips.sort_index()
 
     # Assign the duration of the appropriate leg to the trip

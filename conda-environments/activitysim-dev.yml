@@ -39,7 +39,7 @@ dependencies:
 - numpydoc
 - openmatrix = 0.3.*
 - orca = 1.8
-- pandas = 1.4.*
+- pandas = 2.2.*
 - pandera >= 0.15, <0.18.1
 - platformdirs = 3.2.*
 - pre-commit
@@ -50,7 +50,7 @@ dependencies:
 - pydata-sphinx-theme
 - pyinstrument = 4.4
 - pypyr = 5.8.*
-- pytables >=3.7
+- pytables >=3.9
 - pytest = 7.2.*
 - pytest-cov
 - pytest-regressions
@@ -61,14 +61,14 @@ dependencies:
 - ruff
 - setuptools_scm
 - scikit-learn = 1.2.*
-- sharrow >= 2.6.0
+- sharrow >= 2.7.0
 - simwrapper > 1.7
 - snakeviz  # for profiling
 - sparse
 - sphinx = 6.1.*
 - sphinx_rtd_theme = 1.2.*
 - sphinx-argparse = 0.4.*
-- xarray = 2023.2.*
+- xarray >= 2023.2
 - xmle
 - zarr = 2.14.*
 - zstandard

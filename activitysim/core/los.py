@@ -780,7 +780,15 @@ class Network_LOS(object):
                 self.maz_ceiling
             ) + np.asanyarray(dmaz, dtype=np.int64)
         else:
-            i = np.asanyarray(omaz) * self.maz_ceiling + np.asanyarray(dmaz)
+            # if we have less than a 32-bit index, it will
+            # overflow so we need to upgrade to at least 32 bit
+            omaz_as_array = np.asanyarray(omaz)
+            if omaz_as_array.dtype not in (np.int32, np.int64):
+                omaz_as_array = omaz_as_array.astype(np.int32)
+            dmaz_as_array = np.asanyarray(dmaz)
+            if dmaz_as_array.dtype not in (np.int32, np.int64):
+                dmaz_as_array = dmaz_as_array.astype(np.int32)
+            i = omaz_as_array * self.maz_ceiling + dmaz_as_array
         s = util.quick_loc_df(i, self.maz_to_maz_df, attribute)
 
         # FIXME - no point in returning series?

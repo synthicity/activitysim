@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import glob
 import hashlib
+import importlib.resources
 import logging
 import os
 import shutil
@@ -21,14 +22,15 @@ MANIFEST = "example_manifest.yaml"
 
 def _example_path(resource):
     resource = os.path.join(EXAMPLES_DIR, resource)
-    path = pkg_resources.resource_filename(PACKAGE, resource)
-
-    return path
+    return importlib.resources.as_file(
+        importlib.resources.files(PACKAGE).joinpath(resource)
+    )
 
 
 def _load_manifest():
-    with open(_example_path(MANIFEST), "r") as f:
-        manifest = yaml.safe_load(f.read())
+    with _example_path(MANIFEST) as f_pth:
+        with open(f_pth, "r") as f:
+            manifest = yaml.safe_load(f.read())
 
     assert manifest, f"error: could not load {MANIFEST}"
     return {example["name"]: example for example in manifest}
@@ -177,8 +179,9 @@ def get_example(
             )
 
         else:
-            for asset_path in glob.glob(_example_path(assets)):
-                copy_asset(asset_path, target_path, dirs_exist_ok=True)
+            with _example_path(assets) as pth:
+                for asset_path in glob.glob(str(pth)):
+                    copy_asset(asset_path, target_path, dirs_exist_ok=True)
 
     print(f"copied! new project files are in {os.path.abspath(dest_path)}")
 

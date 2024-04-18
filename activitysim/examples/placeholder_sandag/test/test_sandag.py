@@ -196,6 +196,57 @@ def test_2_zone(data):
     run_test(zone="2", multiprocess=False)
 
 
+def test_2_zone_local_compute(data):
+    def _test_path(dirname):
+        return os.path.join(os.path.dirname(__file__), dirname)
+
+    import activitysim.abm  # register components # noqa: F401
+
+    state = workflow.State.make_default(
+        data_dir=example_path("data_2"),
+        configs_dir=(
+            _test_path("configs_2_zone"),
+            example_path("configs_2_zone"),
+            psrc_example_path("configs"),
+        ),
+        output_dir=_test_path("output_2"),
+    )
+    state.run.all(resume_after=None)
+    # ## regress tours
+    regress_tours_df = pd.read_csv(_test_path(f"regress/final_2_zone_tours.csv"))
+    tours_df = pd.read_csv(_test_path(f"output_2/final_2_zone_tours.csv"))
+    tours_df.to_csv(
+        _test_path(f"regress/final_2_zone_tours_last_run_localcompute.csv"), index=False
+    )
+    test.assert_frame_substantively_equal(
+        tours_df, regress_tours_df, rtol=1e-03, check_dtype=False
+    )
+
+    # ## regress trips
+    regress_trips_df = pd.read_csv(_test_path(f"regress/final_2_zone_trips.csv"))
+    trips_df = pd.read_csv(_test_path(f"output_2/final_2_zone_trips.csv"))
+    trips_df.to_csv(_test_path(f"regress/final_2_zone_trips_last_run.csv"), index=False)
+    test.assert_frame_substantively_equal(
+        trips_df, regress_trips_df, rtol=1e-03, check_dtype=False
+    )
+
+    # also test accessibility for the 2-zone system
+    regress_accessibility_df = pd.read_csv(
+        _test_path(f"regress/final_2_zone_proto_disaggregate_accessibility.csv")
+    )
+    final_accessibility_df = pd.read_csv(
+        _test_path(f"output_2/final_2_zone_proto_disaggregate_accessibility.csv")
+    )
+    final_accessibility_df = final_accessibility_df[
+        [c for c in final_accessibility_df.columns if not c.startswith("_original_")]
+    ]
+    test.assert_frame_substantively_equal(
+        final_accessibility_df,
+        regress_accessibility_df,
+        check_dtype=False,
+    )
+
+
 def test_2_zone_norecode(data):
     run_test(zone="2", multiprocess=False, recode=False)
 

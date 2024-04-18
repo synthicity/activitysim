@@ -300,34 +300,42 @@ def report_errors(state, input_checker_settings, v_warnings, v_errors):
 
             for warn in warns:
                 if "dataframe validator" in str(warn.message):
-                    file_logger.warning(
-                        "Failed dataframe validator: "
-                        + str(warn.message).split("\n")[-1]
-                    )
+                    try:
+                        file_logger.warning(
+                            "Failed dataframe validator: "
+                            + str(warn.message).split("\n")[-1]
+                        )
+                    except Exception:
+                        file_logger.warning(warn)
                 elif "element-wise validator" in str(warn.message):
-                    if "DataFrameSchema" in str(warn.message):
-                        file_logger.warning(
-                            "Failed element-wise validator: <"
-                            + str(warn.message).split("\n")[0].split(" ")[1]
-                            + table_name
-                            + ")>\n\t"
-                            + str(warn.message)
-                            .split("failure cases:\n")[0]
-                            .split("\n")[-2]
-                            + "\n\tfailure cases:\n\t"
-                            + "\n\t".join(
-                                str(warn.message)
-                                .split("failure cases:\n")[1]
-                                .split("\n")
+                    try:
+                        if "DataFrameSchema" in str(warn.message):
+                            file_logger.warning(
+                                "Failed element-wise validator: <"
+                                + str(warn.message).split("\n")[0].split(" ")[1]
+                                + table_name
+                                + ")>\n\t"
+                                + str(warn.message)
+                                .split("failure cases:\n")[0]
+                                .split("\n")[-2]
+                                + "\n\tfailure cases:\n\t"
+                                + "\n\t".join(
+                                    str(warn.message)
+                                    .split("failure cases:\n")[1]
+                                    .split("\n")
+                                )
                             )
-                        )
-                    else:
-                        file_logger.warning(
-                            "Failed element-wise validator: <"
-                            + " ".join(str(warn.message).split("\n")[0].split(" ")[1:3])
-                            + "\n\t"
-                            + "\n\t".join(str(warn.message).split("\n")[1:])
-                        )
+                        else:
+                            file_logger.warning(
+                                "Failed element-wise validator: <"
+                                + " ".join(
+                                    str(warn.message).split("\n")[0].split(" ")[1:3]
+                                )
+                                + "\n\t"
+                                + "\n\t".join(str(warn.message).split("\n")[1:])
+                            )
+                    except Exception:
+                        file_logger.warning(warn)
                 else:
                     file_logger.warning(warn)
             file_logger.warning("\n")

@@ -19,7 +19,7 @@ Description,Target,Expression
 ,tour_mode_is_drive_transit,i_tour_mode.isin(I_DRIVE_TRANSIT_MODES)
 ,tour_mode_is_ride_hail,i_tour_mode.isin(I_RIDE_HAIL_MODES)
 #,,
-,selected_tour_vehicle,"reindex(tours.selected_vehicle, df.tour_id)"
+,selected_tour_vehicle,"reindex(tours.selected_vehicle, df.tour_id).astype(vehicles.vehicle_type.dtype)"
 ,auto_op_cost,"reindex(vehicles.groupby('vehicle_type')['auto_operating_cost'].mean(), pd.Series(selected_tour_vehicle, df.index))"
 ,auto_op_cost,"np.where(pd.isna(auto_op_cost), costPerMile, auto_op_cost)"
 ,inbound,~df.outbound

@@ -96,7 +96,36 @@ def read_assignment_spec(
     """
 
     try:
-        cfg = pd.read_csv(file_name, comment="#")
+        # we use an explicit list of na_values, these are the values that
+        # Pandas version 1.5 recognized as NaN by default.  Notably absent is
+        # 'None' which is used in some spec files to be the object `None` not
+        # the float value NaN.
+        cfg = pd.read_csv(
+            file_name,
+            comment="#",
+            na_values=[
+                "",
+                "#N/A",
+                "#N/A N/A",
+                "#NA",
+                "-1.#IND",
+                "-1.#QNAN",
+                "-NaN",
+                "-nan",
+                "1.#IND",
+                "1.#QNAN",
+                "<NA>",
+                "N/A",
+                "NA",
+                "NULL",
+                "NaN",
+                "n/a",
+                "nan",
+                "null",
+            ],
+            keep_default_na=False,
+        )
+
     except Exception as e:
         logger.error(f"Error reading spec file: {file_name}")
         logger.error(str(e))

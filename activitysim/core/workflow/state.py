@@ -714,7 +714,18 @@ class State:
         if t is None:
             raise KeyError(tablename)
         if isinstance(t, pd.DataFrame):
-            t = pa.Table.from_pandas(t, preserve_index=True, columns=columns)
+            df = t
+            try:
+                t = pa.Table.from_pandas(df, preserve_index=True, columns=columns)
+            except (pa.ArrowTypeError, pa.ArrowInvalid):
+                # if there are object columns, try to convert them to categories
+                df = df.copy()
+                for k, dtype in df.dtypes.items():
+                    if dtype.kind == "O":
+                        df[k] = df[k].astype("str")
+                    elif dtype == "boolean":
+                        df[k] = df[k].astype("str")
+                t = pa.Table.from_pandas(df, preserve_index=True, columns=columns)
         if isinstance(t, pa.Table):
             if columns is not None:
                 t = t.select(columns)

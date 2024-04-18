@@ -165,8 +165,8 @@ def progressive_checkpoint_test(
         if ref_target.exists():
             try:
                 state.checkpoint.check_against(ref_target, checkpoint_name=step_name)
-            except Exception:
-                print(f"> {name} {step_name}: ERROR")
+            except Exception as e:
+                print(f"> {name} {step_name}: ERROR {e}")
                 raise
             else:
                 print(f"> {name} {step_name}: ok")

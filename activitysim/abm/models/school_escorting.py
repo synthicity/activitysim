@@ -695,7 +695,7 @@ def school_escorting(
     state.add_table("tours", tours)
     state.get_rn_generator().drop_channel("tours")
     state.get_rn_generator().add_channel("tours", tours)
-    state.add_table("escort_bundles", escort_bundles)
+    state.add_table("escort_bundles", escort_bundles.reset_index(drop=True))
     # save school escorting tours and trips in pipeline so we can overwrite results from downstream models
     state.add_table("school_escort_tours", school_escort_tours)
     state.add_table("school_escort_trips", school_escort_trips)

@@ -100,7 +100,7 @@ def create_chauf_escort_trips(bundles):
             "outbound",
             "purpose",
         ]
-    ).reset_index()
+    ).reset_index(drop=True)
 
     # numbering trips such that outbound escorting trips must come first and inbound trips must come last
     outbound_trip_num = -1 * (
@@ -240,7 +240,7 @@ def create_escortee_trips(bundles):
     # create a new trip for each escortee destination
     escortee_trips = escortee_trips.explode(
         ["destination", "escort_participants", "school_escort_trip_num", "purpose"]
-    ).reset_index()
+    ).reset_index(drop=True)
 
     # numbering trips such that outbound escorting trips must come first and inbound trips must come last
     # this comes in handy when merging trips to others in the tour decided downstream
