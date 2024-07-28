@@ -435,6 +435,12 @@ class ProtoPop:
                     maz_candidates = maz_candidates[
                         ~maz_candidates.MAZ.isin(maz_sample_idx)
                     ]
+
+                    # Need to make sure we sample from TAZs that still exist in the maz_candidates
+                    taz_candidates = taz_candidates[
+                        taz_candidates.index.isin(maz_candidates.TAZ)
+                    ]
+
                     # Calculate the remaining samples to collect
                     n_samples_remaining = n_samples - len(maz_sample_idx)
                     n_samples_remaining = (
