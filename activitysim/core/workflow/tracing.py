@@ -506,18 +506,19 @@ class Tracing(StateAccessor):
 
         traceable_table_ids = self.traceable_table_ids
 
-        # Determine whether actual tables or proto_ tables for disaggregate accessibilities
-        persons_table_name = set(traceable_table_ids).intersection(
-            ["persons", "proto_persons"]
-        )
-        households_table_name = set(traceable_table_ids).intersection(
-            ["households", "proto_households"]
+        # trace proto tables if they exist, otherwise trace actual tables
+        # proto tables are used for disaggregate accessibilities and
+        # are removed from the traceable_table_ids after the accessibilities are created
+        households_table_name = (
+            "proto_households"
+            if "proto_households" in traceable_table_ids.keys()
+            else "households"
         )
 
-        assert len(persons_table_name) == 1 and len(persons_table_name) == 1
-        persons_table_name, households_table_name = (
-            persons_table_name.pop(),
-            households_table_name.pop(),
+        persons_table_name = (
+            "proto_persons"
+            if "proto_persons" in traceable_table_ids.keys()
+            else "persons"
         )
 
         if (

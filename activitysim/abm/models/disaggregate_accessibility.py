@@ -922,10 +922,6 @@ def compute_disaggregate_accessibility(
     for ch in list(state.get_rn_generator().channels.keys()):
         state.get_rn_generator().drop_channel(ch)
 
-    # Drop any prematurely added traceables
-    for trace in [x for x in state.tracing.traceable_tables if "proto_" not in x]:
-        state.tracing.deregister_traceable_table(trace)
-
     # # need to clear any premature tables that were added during the previous run
     for name in list(state.existing_table_status):
         if name not in tables_prior:
@@ -953,5 +949,9 @@ def compute_disaggregate_accessibility(
             ),
         )
         state.add_table(tablename, df)
+
+    # drop all proto-related tables and make way for synthetic population
+    for trace in state.tracing.traceable_tables:
+        state.tracing.deregister_traceable_table(trace)
 
     return
