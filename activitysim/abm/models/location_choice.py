@@ -517,10 +517,13 @@ def run_location_sample(
                 ["person_id", "alt_dest", "prob", "pick_count"]
             ].set_index("person_id")
             choices = choices.append(new_choices, ignore_index=False).sort_index()
-            # making probability the mean of all other sampled destinations by person
-            # FIXME is there a better way to do this? Does this even matter for estimation?
-            choices["prob"] = choices["prob"].fillna(
-                choices.groupby("person_id")["prob"].transform("mean")
+            # making prob 0 for missing rows so it does not influence model decision
+            choices["prob"] = choices["prob"].fillna(0)
+            # sort by person_id and alt_dest
+            choices = (
+                choices.reset_index()
+                .sort_values(by=["person_id", "alt_dest"])
+                .set_index("person_id")
             )
 
     return choices
@@ -844,41 +847,14 @@ def run_location_choice(
             )
             estimator.write_override_choices(choices_df.choice)
 
-            if want_logsums:
-                # if we override choices, we need to to replace choice logsum with ologsim for override location
-                # fortunately, as long as we aren't sampling dest alts, the logsum will be in location_sample_df
-
-                # if we start sampling dest alts, we will need code below to compute override location logsum
-                assert estimator.want_unsampled_alternatives
-
-                # merge mode_choice_logsum for the overridden location
-                # alt_logsums columns: ['person_id', 'choice', 'logsum']
-                alt_dest_col = model_settings.ALT_DEST_COL_NAME
-                alt_logsums = (
-                    location_sample_df[[alt_dest_col, ALT_LOGSUM]]
-                    .rename(columns={alt_dest_col: "choice", ALT_LOGSUM: "logsum"})
-                    .reset_index()
-                )
-
-                # choices_df columns: ['person_id', 'choice']
-                choices_df = choices_df[["choice"]].reset_index()
-
-                # choices_df columns: ['person_id', 'choice', 'logsum']
-                choices_df = pd.merge(choices_df, alt_logsums, how="left").set_index(
-                    "person_id"
-                )
-
-                logger.debug(
-                    f"{trace_label} segment {segment_name} estimation: override logsums"
-                )
-
-            if state.settings.trace_hh_id:
-                estimation_trace_label = tracing.extend_trace_label(
-                    trace_label, f"estimation.{segment_name}.survey_choices"
-                )
-                state.tracing.trace_df(choices_df, estimation_trace_label)
-
         if want_logsums & (not skip_choice):
+            # choices_df currently has location choice logsums in it
+            # do not need to override location choice logsum since it is alts dependent, not choice dependent
+            # choices_df:
+            # person_id  choice    logsum
+            # 1875722        13  10.627001
+            # 2159058         9   7.544127
+
             # grabbing index, could be person_id or proto_person_id
             index_name = choices_df.index.name
             # merging mode choice logsum of chosen alternative to choices
@@ -895,6 +871,11 @@ def run_location_choice(
                 .drop(columns=model_settings.ALT_DEST_COL_NAME)
                 .set_index(index_name)
             )
+            # choices_df now has mode choice logsum of override alternative:
+            # person_id   choice   logsum    mode_choice_logsum
+            # 1875722        13  10.627001            3.526035
+            # 2159058         9   7.544127            0.372482
+            # 3188484        13   9.312651            3.179640
 
         choices_list.append(choices_df)
 
