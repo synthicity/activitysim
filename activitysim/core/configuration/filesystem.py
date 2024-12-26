@@ -169,7 +169,8 @@ class FileSystem(PydanticBase, validate_assignment=True):
         if subdir is not None:
             out = out.joinpath(subdir)
         if not out.exists():
-            out.mkdir(parents=True)
+            out.mkdir(parents=True, exist_ok=True)
+            # we set exist_ok=True so we avoid multiprocess race conditions
         return out
 
     def get_output_file_path(self, file_name) -> Path:

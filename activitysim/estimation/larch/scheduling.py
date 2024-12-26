@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from typing import Collection
@@ -5,7 +7,7 @@ from typing import Collection
 import numpy as np
 import pandas as pd
 import yaml
-from larch import DataFrames, Model, P, X
+from larch import Dataset, Model, P, X
 from larch.util import Dict
 
 from .general import (
@@ -28,6 +30,8 @@ def schedule_choice_model(
     chooser_file="{name}_choosers_combined.csv",
     settings_file="{name}_model_settings.yaml",
     return_data=False,
+    *,
+    alts_in_cv_format=False,
 ):
     model_selector = name.replace("_location", "")
     model_selector = model_selector.replace("_destination", "")
@@ -36,14 +40,16 @@ def schedule_choice_model(
     edb_directory = edb_directory.format(name=name)
 
     def _read_csv(filename, optional=False, **kwargs):
-        filename = filename.format(name=name)
-        try:
-            return pd.read_csv(os.path.join(edb_directory, filename), **kwargs)
-        except FileNotFoundError:
-            if optional:
-                return None
-            else:
-                raise
+        filename = Path(edb_directory).joinpath(filename.format(name=name))
+        if filename.with_suffix(".parquet").exists():
+            print("loading from", filename.with_suffix(".parquet"))
+            return pd.read_parquet(filename.with_suffix(".parquet"), **kwargs)
+        if filename.exists():
+            print("loading from", filename)
+            return pd.read_csv(filename, **kwargs)
+        if optional:
+            return None
+        raise FileNotFoundError(filename)
 
     settings_file = settings_file.format(name=name)
     with open(os.path.join(edb_directory, settings_file), "r") as yf:
@@ -96,7 +102,7 @@ def schedule_choice_model(
     else:
         raise ValueError("cannot find Label or Expression in spec file")
 
-    m = Model()
+    m = Model(compute_engine="numba")
     if len(spec.columns) == 4 and (
         [c.lower() for c in spec.columns]
         == ["label", "description", "expression", "coefficient"]
@@ -131,12 +137,16 @@ def schedule_choice_model(
     apply_coefficients(coefficients, m, minimum=-25, maximum=25)
 
     chooser_index_name = chooser_data.columns[0]
-    x_co = chooser_data.set_index(chooser_index_name)
+    x_co = chooser_data.set_index(chooser_index_name).dropna(axis=1, how="all")
     alt_values.fillna(0, inplace=True)
-    x_ca = cv_to_ca(
-        alt_values.set_index([chooser_index_name, alt_values.columns[1]]),
-        required_labels=spec[label_column_name],
-    )
+    if alts_in_cv_format:
+        x_ca = cv_to_ca(
+            alt_values.set_index([chooser_index_name, alt_values.columns[1]]),
+            required_labels=spec[label_column_name],
+        )
+    else:
+        # the alternative code is "tdd"
+        x_ca = alt_values.set_index([chooser_index_name, "tdd"])
 
     # if CHOOSER_SEGMENT_COLUMN_NAME is not None:
     #     # label segments with names
@@ -148,22 +158,36 @@ def schedule_choice_model(
     #     x_co["_segment_label"] = size_spec.index[0]
 
     alt_codes = np.arange(len(x_ca.index.levels[1])) + 1
-    x_ca.index = x_ca.index.set_levels(alt_codes, 1)
+    x_ca.index = x_ca.index.set_levels(alt_codes, level=1)
     x_co["override_choice_plus1"] = x_co["override_choice"] + 1
     x_co["model_choice_plus1"] = x_co["model_choice"] + 1
 
     unavail_coefs = coefficients.query("(constrain == 'T') & (value < -900)").index
     unavail_data = [i.data for i in m.utility_ca if i.param in unavail_coefs]
-    if len(unavail_data):
+
+    if "mode_choice_logsum" in x_ca and not len(unavail_data):
+        joint_avail = "~(mode_choice_logsum_missing)"
+    elif len(unavail_data):
         joint_unavail = "|".join(f"({i}>0)" for i in unavail_data)
         joint_avail = f"~({joint_unavail})"
     else:
-        joint_avail = 1
+        joint_avail = None
 
-    d = DataFrames(co=x_co, ca=x_ca, av=joint_avail)
-    m.dataservice = d
+    # d = DataFrames(co=x_co, ca=x_ca, av=joint_avail)  # larch 5.7
+    d_ca = Dataset.construct.from_idca(x_ca)
+    if joint_avail == "~(mode_choice_logsum_missing)":
+        tmp = np.isnan(d_ca["mode_choice_logsum"])
+        tmp = tmp.drop_vars(tmp.coords)
+        d_ca = d_ca.assign(mode_choice_logsum_missing=tmp)
+    d_co = Dataset.construct.from_idco(x_co)
+    d = d_ca.merge(d_co)
+    # if joint_avail is not None:
+    #     d["_avail_"] = joint_avail
+
+    m.datatree = d
     m.choice_co_code = "override_choice_plus1"
-    # m.choice_co_code = "model_choice_plus1"
+    if joint_avail is not None:
+        m.availability_ca_var = joint_avail
 
     if return_data:
         return (
@@ -216,38 +240,53 @@ def construct_availability_ca(model, chooser_data, alt_codes_to_names):
     return avail
 
 
-def mandatory_tour_scheduling_work_model(return_data=False):
+def mandatory_tour_scheduling_work_model(
+    edb_directory="output/estimation_data_bundle/{name}/", return_data=False
+):
     return schedule_choice_model(
         name="mandatory_tour_scheduling_work",
+        edb_directory=edb_directory,
         return_data=return_data,
         coefficients_file="tour_scheduling_work_coefficients.csv",
     )
 
 
-def mandatory_tour_scheduling_school_model(return_data=False):
+def mandatory_tour_scheduling_school_model(
+    edb_directory="output/estimation_data_bundle/{name}/", return_data=False
+):
     return schedule_choice_model(
         name="mandatory_tour_scheduling_school",
+        edb_directory=edb_directory,
         return_data=return_data,
         coefficients_file="tour_scheduling_school_coefficients.csv",
     )
 
 
-def non_mandatory_tour_scheduling_model(return_data=False):
+def non_mandatory_tour_scheduling_model(
+    edb_directory="output/estimation_data_bundle/{name}/", return_data=False
+):
     return schedule_choice_model(
         name="non_mandatory_tour_scheduling",
+        edb_directory=edb_directory,
         return_data=return_data,
     )
 
 
-def joint_tour_scheduling_model(return_data=False):
+def joint_tour_scheduling_model(
+    edb_directory="output/estimation_data_bundle/{name}/", return_data=False
+):
     return schedule_choice_model(
         name="joint_tour_scheduling",
+        edb_directory=edb_directory,
         return_data=return_data,
     )
 
 
-def atwork_subtour_scheduling_model(return_data=False):
+def atwork_subtour_scheduling_model(
+    edb_directory="output/estimation_data_bundle/{name}/", return_data=False
+):
     return schedule_choice_model(
         name="atwork_subtour_scheduling",
+        edb_directory=edb_directory,
         return_data=return_data,
     )

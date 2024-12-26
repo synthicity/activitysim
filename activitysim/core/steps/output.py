@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import sys
+import os
+import shutil
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,6 +16,7 @@ import pyarrow.parquet as parquet
 
 from activitysim.core import configuration, workflow
 from activitysim.core.workflow.checkpoint import CHECKPOINT_NAME
+from activitysim.core.estimation import estimation_enabled, EstimationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +226,144 @@ def write_data_dictionary(state: workflow.State) -> None:
                     file=output_file,
                 )
                 print(f"{info}\n", file=output_file)
+
+
+def find_lowest_level_directories(starting_directory):
+    lowest_dirs = list()
+
+    for root, dirs, files in os.walk(starting_directory):
+        if not dirs:
+            lowest_dirs.append(root)
+
+    return lowest_dirs
+
+
+def concat_and_write_edb(df_concat_dict, write_dir):
+    # concatenate the dataframes and output final file
+    for table_name, df_array in df_concat_dict.items():
+        df = pd.concat(df_array)
+
+        # sort the dataframe by index
+        if df.index.name is not None:
+            df = df.sort_index()
+        else:
+            df = df.sort_values(by=df.columns[0], kind="mergesort", ignore_index=True)
+
+        if table_name.endswith(".csv"):
+            df.to_csv(os.path.join(write_dir, table_name), index=False)
+        elif table_name.endswith(".parquet"):
+            df.to_parquet(os.path.join(write_dir, table_name), index=True)
+        elif table_name.endswith(".pkl"):
+            df.to_pickle(os.path.join(write_dir, table_name))
+        else:
+            raise ValueError(f"Unknown file type {table_name}")
+
+
+def _coalesce_estimation_data_bundles(state):
+    """
+    In estimation mode, estimation data bundles are written to separate subdirectories for each subprocess.
+    This model will go through each subdirectory and move the files to the parent directory.
+    This will only occur if the lowest level directory contains the multiprocess step names.
+    Only multiprocess step names are used because that's how EDBs are written in estimation mode.
+    """
+
+    logger.info("Coalescing Estimation Data Bundles")
+
+    edb_dir = state.filesystem.get_output_dir("estimation_data_bundle")
+    estimation_settings = EstimationConfig.read_settings_file(
+        state.filesystem, "estimation.yaml", mandatory=True
+    )
+
+    lowest_dirs = find_lowest_level_directories(edb_dir)
+
+    multiprocessing_step_names = [
+        step.name for step in state.settings.multiprocess_steps
+    ]
+    lowest_dirs = [
+        dir
+        for dir in lowest_dirs
+        if any(step in dir for step in multiprocessing_step_names)
+    ]
+
+    if len(lowest_dirs) == 0:
+        logger.info("No estimation data bundles to coalesce")
+        return
+
+    prev_edb = None
+    df_concat_dict = {}
+
+    # loop through each lowest level directory
+    for dir in lowest_dirs:
+        logger.debug(f"Coalescing {dir}")
+        # get the parent directory
+        cur_edb = Path(dir).parent.absolute()
+        if prev_edb is None:
+            prev_edb = cur_edb
+
+        # check if we have moved onto a new EDB
+        is_same_edb = cur_edb == prev_edb
+
+        # if we have moved onto a new EDB, concatenate the dataframes and write the final files
+        if (
+            (not is_same_edb)
+            and (len(df_concat_dict) > 0)
+            # and (len(df_concat_dict[list(df_concat_dict.keys())[0]]) > 1)
+        ):
+            concat_and_write_edb(df_concat_dict, prev_edb)
+
+            # reset edb dir and dictionary
+            prev_edb = cur_edb
+            df_concat_dict = {}
+
+        for i, file in enumerate(os.listdir(dir)):
+
+            # get the file path
+            file_path = os.path.join(dir, file)
+
+            # look for files that are duplicated across subprocesses
+            is_coefs_file = file.endswith(".csv") and "coef" in file
+            is_settings_file = file.endswith(".yaml")
+            is_spec_file = file.endswith(".csv") and ("spec" in file.lower())
+            is_landuse_file = file.endswith("_landuse.csv")
+            is_size_terms_file = file.endswith("_size_terms.csv")
+            is_duplicate_file = (
+                is_coefs_file
+                or is_spec_file
+                or is_settings_file
+                or is_landuse_file
+                or is_size_terms_file
+            )
+
+            if is_duplicate_file and not os.path.exists(os.path.join(cur_edb, file)):
+                # copy the file to the parent directory
+                shutil.copy(file_path, os.path.join(cur_edb, file))
+
+            if not is_duplicate_file:
+                # read file and store in dictionary
+                if file.endswith(".csv"):
+                    df = pd.read_csv(file_path, low_memory=False)
+                elif file.endswith(".parquet"):
+                    df = pd.read_parquet(file_path)
+                elif file.endswith(".pkl"):
+                    df = pd.read_pickle(file_path)
+                else:
+                    raise ValueError(
+                        f"Unknown file type found {file}, expect csv, parquet, or pkl"
+                    )
+
+                if file in df_concat_dict.keys():
+                    df_concat_dict[file].append(df)
+                else:
+                    df_concat_dict[file] = [df]
+
+        # delete the directory now that we have gone through all the files
+        if estimation_settings.DELETE_MP_SUBDIRS:
+            shutil.rmtree(dir)
+
+    # need to concatenate the last set of dataframes
+    concat_and_write_edb(df_concat_dict, cur_edb)
+
+    return
 
 
 @workflow.step
@@ -434,3 +576,22 @@ def write_tables(state: workflow.State) -> None:
                 parquet.write_table(dt, file_path)
             else:
                 raise ValueError(f"unknown file_type {file_type}")
+
+
+@workflow.step
+def coalesce_estimation_data_bundles(state: workflow.State) -> None:
+    """
+    In estimation mode, estimation data bundles are written to separate subdirectories for each subprocess.
+    This model will go through each subdirectory and concat / copy the files to the parent directory.
+    This will only occur if the lowest level directory contains the multiprocess step names.
+    Only multiprocess step names are used because that's how EDBs are written in estimation mode.
+
+    """
+    is_estimation = estimation_enabled(state)
+    if state.settings.multiprocess and is_estimation:
+        _coalesce_estimation_data_bundles(state)
+    else:
+        logger.info(
+            "Not in estimation mode or not using multiprocess. Nothing to coalesce."
+        )
+    return

@@ -187,6 +187,14 @@ class LocationComponentSettings(BaseLogitComponentSettings):
     SAMPLE_SIZE: int
     """This many candidate alternatives will be sampled for each choice."""
 
+    ESTIMATION_SAMPLE_SIZE: int = -1
+    """
+    The number of alternatives to sample for estimation mode.
+    If zero, then all alternatives are used. If negative, then the regular
+    `SAMPLE_SIZE` is used.
+    Truth alternative will be included in the sample.
+    """
+
     LOGSUM_SETTINGS: Path
     """Settings for the logsum computation."""
 
@@ -232,15 +240,6 @@ class TourLocationComponentSettings(LocationComponentSettings, extra="forbid"):
 
     ORIG_ZONE_ID: str | None = None
     """This setting appears to do nothing..."""
-
-    ESTIMATION_SAMPLE_SIZE: int = 0
-    """
-    The number of alternatives to sample for estimation mode.
-    If zero, then all alternatives are used.
-    Truth alternative will be included in the sample.
-    Larch does not yet support sampling alternatives for estimation,
-    but this setting is still helpful for estimation mode runtime.
-    """
 
 
 class TourModeComponentSettings(TemplatedLogitComponentSettings, extra="forbid"):

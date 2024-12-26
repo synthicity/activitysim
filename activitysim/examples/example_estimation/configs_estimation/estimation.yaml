@@ -1,0 +1,80 @@
+EDB_FILETYPE: parquet           # options: csv, parquet, pkl
+
+enable: True
+
+bundles:
+  - school_location
+  - workplace_location
+  - auto_ownership
+  - vehicle_type_choice
+  - free_parking
+  - cdap
+  - mandatory_tour_frequency
+  - mandatory_tour_scheduling_work
+  - mandatory_tour_scheduling_school
+  - joint_tour_frequency
+  - joint_tour_composition
+  - joint_tour_participation
+  - joint_tour_destination
+  - joint_tour_scheduling
+  - non_mandatory_tour_frequency
+  - non_mandatory_tour_destination
+  - non_mandatory_tour_scheduling
+  - tour_mode_choice
+  - atwork_subtour_frequency
+  - atwork_subtour_destination
+  - atwork_subtour_scheduling
+  - atwork_subtour_mode_choice
+  - stop_frequency
+  - trip_purpose
+  - trip_destination
+  - trip_scheduling
+  - trip_mode_choice
+
+#  - atwork_subtour_mode_choice  subtours.tour_mode
+
+survey_tables:
+  households:
+    file_name: override_households.csv
+    index_col: household_id
+  persons:
+    file_name: override_persons.csv
+    index_col: person_id
+  tours:
+    file_name: override_tours.csv
+    index_col: tour_id
+  joint_tour_participants:
+    file_name: override_joint_tour_participants.csv
+    index_col: participant_id
+  trips:
+    file_name: override_trips.csv
+    index_col: trip_id
+
+estimation_table_types:
+  school_location: interaction_sample_simulate
+  workplace_location:  interaction_sample_simulate
+  auto_ownership: simple_simulate
+  vehicle_type_choice: interaction_simulate
+  free_parking: simple_simulate
+  cdap: cdap_simulate
+  mandatory_tour_frequency: simple_simulate
+  mandatory_tour_scheduling_work: interaction_sample_simulate
+  mandatory_tour_scheduling_school: interaction_sample_simulate
+  joint_tour_frequency: simple_simulate
+  joint_tour_composition: simple_simulate
+  joint_tour_participation: simple_simulate
+  joint_tour_destination: interaction_sample_simulate
+  joint_tour_scheduling: interaction_sample_simulate
+  non_mandatory_tour_frequency: interaction_simulate
+  non_mandatory_tour_destination: interaction_sample_simulate
+  non_mandatory_tour_scheduling: interaction_sample_simulate
+  tour_mode_choice: simple_simulate
+  atwork_subtour_frequency: simple_simulate
+  atwork_subtour_destination: interaction_sample_simulate
+  atwork_subtour_scheduling: interaction_sample_simulate
+  atwork_subtour_mode_choice: simple_simulate
+  stop_frequency: simple_simulate
+  trip_purpose: simple_probabilistic
+  trip_destination: interaction_sample_simulate
+  trip_scheduling: simple_probabilistic
+  trip_mode_choice: simple_simulate

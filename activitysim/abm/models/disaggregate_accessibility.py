@@ -753,11 +753,12 @@ def get_disaggregate_logsums(
             state.filesystem, model_name + ".yaml"
         )
         model_settings.SAMPLE_SIZE = disagg_model_settings.DESTINATION_SAMPLE_SIZE
-        estimator = estimation.manager.begin_estimation(state, trace_label)
-        if estimator:
-            location_choice.write_estimation_specs(
-                state, estimator, model_settings, model_name + ".yaml"
-            )
+        # estimator = estimation.manager.begin_estimation(state, trace_label)
+        # if estimator:
+        #     location_choice.write_estimation_specs(
+        #         state, estimator, model_settings, model_name + ".yaml"
+        #     )
+        estimator = None
 
         # Append table references in settings with "proto_"
         # This avoids having to make duplicate copies of config files for disagg accessibilities

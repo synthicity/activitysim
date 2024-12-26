@@ -1,0 +1,165 @@
+
+inherit_settings: True
+
+# assume enough RAM to not chunk
+chunk_training_mode: disabled
+
+# input tables
+input_table_list:
+  #
+  # households (table index 'household_id')
+  #
+  - tablename: households
+    filename: override_households.csv
+    index_col: household_id
+    keep_columns:
+      - home_zone_id
+      - income
+      - hhsize
+      - HHT
+      - auto_ownership
+      - num_workers
+  #
+  # persons (table index 'person_id')
+  #
+  - tablename: persons
+    filename: override_persons.csv
+    keep_columns:
+      - household_id
+      - age
+      - PNUM
+      - sex
+      - pemploy
+      - pstudent
+      - ptype
+  #
+  # land_use (table index 'zone_id')
+  #
+  - tablename: land_use
+    filename: land_use.csv
+    rename_columns:
+      # accept either TAZ or ZONE (but not both)
+      TAZ: zone_id
+      ZONE: zone_id
+      COUNTY: county_id
+    keep_columns:
+      - DISTRICT
+      - SD
+      - county_id
+      - TOTHH
+      - TOTPOP
+      - TOTACRE
+      - RESACRE
+      - CIACRE
+      - TOTEMP
+      - AGE0519
+      - RETEMPN
+      - FPSEMPN
+      - HEREMPN
+      - OTHEMPN
+      - AGREMPN
+      - MWTEMPN
+      - PRKCST
+      - OPRKCST
+      - area_type
+      - HSENROLL
+      - COLLFTE
+      - COLLPTE
+      - TOPOLOGY
+      - TERMINAL
+
+write_raw_tables: False
+rng_base_seed: 0
+
+fail_fast: True
+
+use_shadow_pricing: False
+
+# turn writing of sample_tables on and off for all models
+# (if True, tables will be written if DEST_CHOICE_SAMPLE_TABLE_NAME is specified in individual model settings)
+want_dest_choice_sample_tables: False
+
+# number of households to simulate
+households_sample_size: 0
+
+# to resume after last successful checkpoint, specify resume_after: _
+#resume_after: initialize_households
+
+trace_hh_id:
+
+multiprocess: false
+num_processes: 2
+
+
+output_tables:
+  h5_store: False
+  action: include
+  prefix: final_
+  sort: True
+  tables:
+    - checkpoints
+    - accessibility
+    - land_use
+    - households
+    - persons
+    - tours
+    - trips
+    - joint_tour_participants
+
+resume_after:
+
+models:
+  - initialize_landuse
+  - initialize_households
+  - compute_accessibility
+  - school_location
+  - workplace_location
+  - auto_ownership_simulate
+  - free_parking
+  - cdap_simulate
+  - mandatory_tour_frequency
+  - mandatory_tour_scheduling
+  - joint_tour_frequency
+  - joint_tour_composition
+  - joint_tour_participation
+  - joint_tour_destination
+  - joint_tour_scheduling
+  - non_mandatory_tour_frequency
+  - non_mandatory_tour_destination
+  - non_mandatory_tour_scheduling
+  - tour_mode_choice_simulate
+  - atwork_subtour_frequency
+  - atwork_subtour_destination
+  - atwork_subtour_scheduling
+  - atwork_subtour_mode_choice
+  - stop_frequency
+  - trip_purpose
+  - trip_destination
+#  - trip_purpose_and_destination
+  - trip_scheduling
+  - trip_mode_choice
+#  - write_data_dictionary
+#  - track_skim_usage
+#  - write_trip_matrices
+  - write_tables
+  - coalesce_estimation_data_bundles
+
+
+multiprocess_steps:
+  - name: mp_initialize
+    begin: initialize_landuse
+  - name: mp_accessibility
+    begin: compute_accessibility
+    slice:
+      tables:
+        - accessibility
+      # don't slice any tables not explicitly listed above in slice.tables
+      exclude: True
+  - name: mp_households
+    begin: school_location
+    slice:
+      tables:
+        - households
+        - persons
+  - name: mp_summarize
+    begin: write_tables

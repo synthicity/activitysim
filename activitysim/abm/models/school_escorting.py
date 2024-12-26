@@ -493,7 +493,10 @@ def school_escorting(
                 coefficients_df, file_name=stage.upper() + "_COEFFICIENTS"
             )
             estimator.write_choosers(choosers)
-            estimator.write_alternatives(alts, bundle_directory=True)
+            if state.settings.multiprocess:
+                estimator.write_alternatives(alts, bundle_directory=False)
+            else:
+                estimator.write_alternatives(alts, bundle_directory=True)
 
             # FIXME #interaction_simulate_estimation_requires_chooser_id_in_df_column
             #  shuold we do it here or have interaction_simulate do it?

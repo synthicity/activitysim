@@ -10,16 +10,16 @@ from pathlib import Path
 import larch
 import numpy as np
 import pandas as pd
+import xarray as xr
 import yaml
-from larch import DataFrames, Model, P, X
-from larch.log import logger_name
+from larch import Dataset, Model, P, X
 from larch.model.model_group import ModelGroup
 from larch.util import Dict
 
 from ...abm.models.util import cdap
 from .general import apply_coefficients, explicit_value_parameters
 
-_logger = logging.getLogger(logger_name)
+_logger = logging.getLogger("larch")
 
 MAX_HHSIZE = 5
 
@@ -275,7 +275,7 @@ def cdap_joint_tour_utility(model, n_persons, alts, joint_coef, values):
 
                         expression_value = "&".join(expression_list)
                         # FIXME only apply to alternative if dependency satisfied
-                        bug
+                        raise NotImplementedError("bug")
                         model.utility_co[anum] += X(expression_value) * P(coefficient)
 
                 elif "_px" in expression:
@@ -283,7 +283,7 @@ def cdap_joint_tour_utility(model, n_persons, alts, joint_coef, values):
                         dependency_name = row.dependency.replace("x", str(pnum))
                         expression = row.Expression.replace("x", str(pnum))
                         # FIXME only apply to alternative if dependency satisfied
-                        bug
+                        raise NotImplementedError("bug")
                         model.utility_co[anum] += X(expression) * P(coefficient)
 
             else:
@@ -329,18 +329,29 @@ def cdap_split_data(households, values, add_joint):
     return cdap_data
 
 
-def cdap_dataframes(households, values, add_joint):
+def cdap_dataframes(households, values, add_joint) -> dict[int, Dataset]:
     data = cdap_split_data(households, values, add_joint)
     dfs = {}
     for hhsize in data.keys():
         alts = generate_alternatives(hhsize, add_joint)
-        dfs[hhsize] = DataFrames(
-            co=data[hhsize],
-            alt_names=alts.keys(),
-            alt_codes=alts.values(),
-            av=1,
-            ch=data[hhsize].override_choice.map(alts),
+        dfs[hhsize] = Dataset.construct.from_idco(
+            data[hhsize],
+            alts=dict(zip(alts.values(), alts.keys())),
         )
+        # convert override_choice to alternative code from alternative name
+        dfs[hhsize]["override_choice"] = xr.DataArray(
+            np.vectorize(alts.get)(dfs[hhsize].override_choice.data),
+            coords=dfs[hhsize].override_choice.coords,
+            dims=dfs[hhsize].override_choice.dims,
+            name="override_choice",
+        )
+        # dfs[hhsize] = DataFrames(
+        #     co=data[hhsize],
+        #     alt_names=alts.keys(),
+        #     alt_codes=alts.values(),
+        #     av=1,
+        #     ch=data[hhsize].override_choice.map(alts),
+        # )
     return dfs
 
 
@@ -388,11 +399,18 @@ def cdap_data(
         raise FileNotFoundError(edb_directory)
 
     def read_csv(filename, **kwargs):
-        filename = filename.format(name=name)
-        return pd.read_csv(os.path.join(edb_directory, filename), **kwargs)
+        filename = Path(edb_directory).joinpath(filename.format(name=name)).resolve()
+        if filename.with_suffix(".parquet").exists():
+            if "comment" in kwargs:
+                del kwargs["comment"]
+            print(f"Reading {filename.with_suffix('.parquet')}")
+            return pd.read_parquet(filename.with_suffix(".parquet"), **kwargs)
+        print(f"Reading {filename}")
+        return pd.read_csv(filename, **kwargs)
 
     def read_yaml(filename, **kwargs):
         filename = filename.format(name=name)
+        print(f"Reading {os.path.join(edb_directory, filename)}")
         with open(os.path.join(edb_directory, filename), "rt") as f:
             return yaml.load(f, Loader=yaml.SafeLoader, **kwargs)
 
@@ -436,7 +454,7 @@ def cdap_data(
     except FileNotFoundError:
         joint_coef = None
         add_joint = False
-    print("Including joint tour utiltiy?:", add_joint)
+    print("Including joint tour utility?:", add_joint)
 
     spec1 = read_csv(spec1_file, comment="#")
     values = read_csv(chooser_data_file, comment="#")
@@ -497,9 +515,9 @@ def cdap_model(
     cdap_dfs = cdap_dataframes(households, values, add_joint)
     m = {}
     _logger.info(f"building for model 1")
-    m[1] = Model(dataservice=cdap_dfs[1])
+    m[1] = Model(datatree=cdap_dfs[1], compute_engine="numba")
     cdap_base_utility_by_person(m[1], n_persons=1, spec=spec1)
-    m[1].choice_any = True
+    m[1].choice_co_code = "override_choice"
     m[1].availability_any = True
 
     # Add cardinality into interaction_coef if not present
@@ -510,13 +528,13 @@ def cdap_model(
     for s in range(2, MAX_HHSIZE + 1):
         # for s in [2, 3, 4, 5]:
         _logger.info(f"building for model {s}")
-        m[s] = Model(dataservice=cdap_dfs[s])
+        m[s] = Model(datatree=cdap_dfs[s])
         alts = generate_alternatives(s, add_joint)
         cdap_base_utility_by_person(m[s], s, spec1, alts, values.columns)
         cdap_interaction_utility(m[s], s, alts, interaction_coef, coefficients)
         # if add_joint:
         #     cdap_joint_tour_utility(m[s], s, alts, d.joint_coef, values)
-        m[s].choice_any = True
+        m[s].choice_co_code = "override_choice"
         m[s].availability_any = True
 
     model = ModelGroup(m.values())

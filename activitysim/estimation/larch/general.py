@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
@@ -5,13 +7,14 @@ from typing import Mapping
 
 import numpy as np
 import pandas as pd
-from larch import DataFrames, Model, P, X  # noqa: F401
-from larch.log import logger_name
-from larch.model.abstract_model import AbstractChoiceModel
+from larch import Model, P, X  # noqa: F401
+
+# from larch.log import logger_name
+# from larch.model.abstract_model import AbstractChoiceModel
 from larch.model.tree import NestingTree
 from larch.util import Dict  # noqa: F401
 
-_logger = logging.getLogger(logger_name)
+_logger = logging.getLogger("larch")
 
 
 def cv_to_ca(alt_values, dtype="float64", required_labels=None):
@@ -67,7 +70,12 @@ def cv_to_ca(alt_values, dtype="float64", required_labels=None):
             x_ca_tall = x_ca_tall.astype(dtype)
 
     # Unstack the variables dimension
-    x_ca = x_ca_tall.unstack(1)
+    x_ca = (
+        x_ca_tall.reset_index()
+        .drop_duplicates()
+        .set_index(x_ca_tall.index.names)
+        .unstack(1)
+    )
 
     # Code above added a dummy top level to columns, remove it here.
     x_ca.columns = x_ca.columns.droplevel(0)
@@ -104,7 +112,9 @@ def str_repr(x):
     return x
 
 
-def linear_utility_from_spec(spec, x_col, p_col, ignore_x=(), segment_id=None):
+def linear_utility_from_spec(
+    spec, x_col, p_col, ignore_x=(), segment_id=None, x_validator=None, expr_col=None
+):
     """
     Create a linear function from a spec DataFrame.
 
@@ -129,6 +139,13 @@ def linear_utility_from_spec(spec, x_col, p_col, ignore_x=(), segment_id=None):
         The CHOOSER_SEGMENT_COLUMN_NAME identified for ActivitySim.
         This value is ignored if `p_col` is a string, and required
         if `p_col` is a dict.
+    x_validator : Container, optional
+        A container of valid values for the x_col.  If given, the
+        x_col values will be used if they are `in` the x_validator,
+        otherwise the value from `expr_col` will be used.
+    expr_col : str, optional
+        The name of the column to use when the x_col value is not
+        in the x_validator.
 
     Returns
     -------
@@ -144,6 +161,8 @@ def linear_utility_from_spec(spec, x_col, p_col, ignore_x=(), segment_id=None):
                 x_col,
                 seg_p_col,
                 ignore_x,
+                x_validator=x_validator,
+                expr_col=expr_col,
             ) * X(f"{segment_id}=={str_repr(segval)}")
         return sum(partial_utility.values())
     parts = []
@@ -156,6 +175,16 @@ def linear_utility_from_spec(spec, x_col, p_col, ignore_x=(), segment_id=None):
                 _x = None
             else:
                 raise
+
+        # when a validator is given, use the expression column if the original
+        # x value is not in the validator
+        if _x is not None and _x not in ignore_x:
+            if x_validator is not None and _x not in x_validator:
+                _x = spec.loc[i, expr_col]
+                if _x.startswith("@"):
+                    _x = _x[1:]
+
+        # handle the parameter...
         _p = spec.loc[i, p_col]
 
         if _x is not None and (_x not in ignore_x) and not pd.isna(_p):
@@ -194,7 +223,9 @@ def linear_utility_from_spec(spec, x_col, p_col, ignore_x=(), segment_id=None):
     return sum(parts)
 
 
-def dict_of_linear_utility_from_spec(spec, x_col, p_col, ignore_x=()):
+def dict_of_linear_utility_from_spec(
+    spec, x_col, p_col, ignore_x=(), x_validator=None, expr_col=None
+):
     """
     Create a linear function from a spec DataFrame.
 
@@ -216,6 +247,13 @@ def dict_of_linear_utility_from_spec(spec, x_col, p_col, ignore_x=()):
         The CHOOSER_SEGMENT_COLUMN_NAME identified for ActivitySim.
         This value is ignored if `p_col` is a string, and required
         if `p_col` is a dict.
+    x_validator : Container, optional
+        A container of valid values for the x_col.  If given, the
+        x_col values will be used if they are `in` the x_validator,
+        otherwise the value from `expr_col` will be used.
+    expr_col : str, optional
+        The name of the column to use when the x_col value is not
+        in the x_validator.
 
     Returns
     -------
@@ -224,7 +262,12 @@ def dict_of_linear_utility_from_spec(spec, x_col, p_col, ignore_x=()):
     utils = {}
     for altname, altcode in p_col.items():
         utils[altcode] = linear_utility_from_spec(
-            spec, x_col, altname, ignore_x=ignore_x
+            spec,
+            x_col,
+            altname,
+            ignore_x=ignore_x,
+            x_validator=x_validator,
+            expr_col=expr_col,
         )
     return utils
 
@@ -288,15 +331,7 @@ def explicit_value_parameters(model):
         except Exception:
             pass
         else:
-            model.set_value(
-                i,
-                value=j,
-                initvalue=j,
-                nullvalue=j,
-                minimum=j,
-                maximum=j,
-                holdfast=True,
-            )
+            model.lock_value(i, value=j)
 
 
 def apply_coefficients(coefficients, model, minimum=None, maximum=None):
@@ -326,25 +361,22 @@ def apply_coefficients(coefficients, model, minimum=None, maximum=None):
             )
             coefficients["constrain"] = "F"
         assert coefficients.index.name == "coefficient_name"
-        assert isinstance(model, AbstractChoiceModel)
+        # assert isinstance(model, AbstractChoiceModel)
         explicit_value_parameters(model)
         for i in coefficients.itertuples():
-            if i.Index in model:
+            if i.Index in model.pnames:
                 holdfast = i.constrain == "T"
                 if holdfast:
-                    minimum_ = i.value
-                    maximum_ = i.value
+                    model.lock_value(i.Index, value=i.value)
                 else:
-                    minimum_ = minimum
-                    maximum_ = maximum
-                model.set_value(
-                    i.Index,
-                    value=i.value,
-                    initvalue=i.value,
-                    holdfast=holdfast,
-                    minimum=minimum_,
-                    maximum=maximum_,
-                )
+                    model.set_value(
+                        i.Index,
+                        value=i.value,
+                        initvalue=i.value,
+                        holdfast=holdfast,
+                        minimum=minimum,
+                        maximum=maximum,
+                    )
 
 
 def apply_coef_template(linear_utility, template_col, condition=None):
@@ -419,7 +451,8 @@ def construct_nesting_tree(alternatives, nesting_settings):
             else:
                 make_nest(a, parent_code=nest_names_to_codes[cfg["name"]])
 
-    make_nest(nesting_settings)
+    if nesting_settings:
+        make_nest(nesting_settings)
 
     return tree
 

@@ -362,7 +362,10 @@ def run(args):
     ]
 
     for cfg_key in np_info_keys:
-        info = np.__config__.get_info(cfg_key)
+        try:
+            info = np.__config__.get_info(cfg_key)
+        except AttributeError:
+            info = np.show_config("dicts").get(cfg_key, "MISSING")
         if info:
             for info_key in ["libraries"]:
                 if info_key in info:

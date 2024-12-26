@@ -180,7 +180,7 @@ def cdap_simulate(
         estimator.write_coefficients(coefficients_df, model_settings)
         estimator.write_table(
             cdap_interaction_coefficients,
-            "interaction_coefficients",
+            "cdap_interaction_coefficients",
             index=False,
             append=False,
         )
@@ -189,7 +189,7 @@ def cdap_simulate(
             spec = cdap.get_cached_spec(state, hhsize)
             estimator.write_table(spec, "spec_%s" % hhsize, append=False)
             if add_joint_tour_utility:
-                joint_spec = cdap.get_cached_joint_spec(hhsize)
+                joint_spec = cdap.get_cached_joint_spec(state, hhsize)
                 estimator.write_table(
                     joint_spec, "joint_spec_%s" % hhsize, append=False
                 )

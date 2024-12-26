@@ -288,14 +288,22 @@ def non_mandatory_tour_frequency(
         )
 
         if estimator:
-            estimator.write_spec(model_settings, bundle_directory=True)
+            bundle_directory = True
+            # writing to separte subdirectory for each segment if multiprocessing
+            if state.settings.multiprocess:
+                bundle_directory = False
+            estimator.write_spec(model_settings, bundle_directory=bundle_directory)
             estimator.write_model_settings(
-                model_settings, model_settings_file_name, bundle_directory=True
+                model_settings,
+                model_settings_file_name,
+                bundle_directory=bundle_directory,
             )
             # preserving coefficients file name makes bringing back updated coefficients more straightforward
             estimator.write_coefficients(coefficients_df, segment_settings)
             estimator.write_choosers(chooser_segment)
-            estimator.write_alternatives(alternatives, bundle_directory=True)
+            estimator.write_alternatives(
+                alternatives, bundle_directory=bundle_directory
+            )
 
             # FIXME #interaction_simulate_estimation_requires_chooser_id_in_df_column
             #  shuold we do it here or have interaction_simulate do it?
@@ -434,8 +442,10 @@ def non_mandatory_tour_frequency(
     if estimator:
         # make sure they created the right tours
         survey_tours = estimation.manager.get_survey_table("tours").sort_index()
+        # need the household_id check below incase household_sample_size != 0
         non_mandatory_survey_tours = survey_tours[
-            survey_tours.tour_category == "non_mandatory"
+            (survey_tours.tour_category == "non_mandatory")
+            & survey_tours.household_id.isin(persons.household_id)
         ]
         # need to remove the pure-escort tours from the survey tours table for comparison below
         if state.is_table("school_escort_tours"):

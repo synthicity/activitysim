@@ -1,6 +1,8 @@
 # ActivitySim
 # See full license in LICENSE.txt.
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -165,6 +167,8 @@ def infer_non_mandatory_tour_frequency(configs_dir, persons, tours):
 
     alts = read_alts()
     tour_types = list(alts.columns.values)
+    if "tot_tours" in tour_types:
+        tour_types.remove("tot_tours")
 
     # tour_frequency is index in alts table
     alts["alt_id"] = alts.index
@@ -806,7 +810,7 @@ def infer(state: workflow.State, configs_dir, input_dir, output_dir):
     assert skip_controls or check_controls("joint_tour_participants", "index")
 
     # patch_tour_ids
-    trips = patch_trip_ids(tours, trips)
+    trips = patch_trip_ids(state, tours, trips)
     survey_tables["trips"]["table"] = trips  # so we can check_controls
     assert skip_controls or check_controls("trips", "index")
 
@@ -846,18 +850,27 @@ def infer(state: workflow.State, configs_dir, input_dir, output_dir):
 
 # python infer.py data
 args = sys.argv[1:]
-assert len(args) == 2, "usage: python infer.py <data_dir> <configs_dir>"
+assert len(args) == 3, "usage: python infer.py <data_dir> <configs_dir> <output_dir>"
 
 data_dir = args[0]
 configs_dir = args[1]
+output_dir = args[2]
 
 with open(os.path.join(configs_dir, "constants.yaml")) as stream:
     CONSTANTS = yaml.load(stream, Loader=yaml.SafeLoader)
 
 input_dir = os.path.join(data_dir, "survey_data/")
-output_dir = input_dir
 
 if apply_controls:
     read_tables(input_dir, control_tables)
 
+state = (
+    workflow.State()
+    .initialize_filesystem(
+        configs_dir=(configs_dir,),
+        output_dir=output_dir,
+        data_dir=(data_dir,),
+    )
+    .load_settings()
+)
 infer(state, configs_dir, input_dir, output_dir)

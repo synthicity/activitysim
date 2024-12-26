@@ -5,11 +5,14 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+from pathlib import Path
+from typing import Literal
 
 import pandas as pd
-import yaml
+from pydantic import model_validator
 
 from activitysim.core import simulate, workflow
+from activitysim.core.configuration import PydanticReadable
 from activitysim.core.configuration.base import PydanticBase
 from activitysim.core.util import reindex
 from activitysim.core.yaml_tools import safe_dump
@@ -18,22 +21,172 @@ logger = logging.getLogger("estimation")
 
 ESTIMATION_SETTINGS_FILE_NAME = "estimation.yaml"
 
+ESTIMATION_TABLE_RECIPES = {
+    "interaction_sample_simulate": {
+        "omnibus_tables": {
+            "choosers_combined": ["choices", "override_choices", "choosers"],
+            "alternatives_combined": [
+                "interaction_sample_alternatives",
+                "interaction_expression_values",
+            ],
+        },
+        "omnibus_tables_append_columns": ["choosers_combined", "alternatives_combined"],
+    },
+    "interaction_simulate": {
+        "omnibus_tables": {
+            "choosers_combined": ["choices", "override_choices", "choosers"],
+            "alternatives_combined": ["interaction_expression_values"],
+        },
+        "omnibus_tables_append_columns": ["choosers_combined", "alternatives_combined"],
+    },
+    "simple_simulate": {
+        "omnibus_tables": {
+            "values_combined": [
+                "choices",
+                "override_choices",
+                "expression_values",
+                "choosers",
+            ]
+        },
+        "omnibus_tables_append_columns": ["values_combined"],
+    },
+    "cdap_simulate": {
+        "omnibus_tables": {
+            "values_combined": ["choices", "override_choices", "choosers"]
+        },
+        "omnibus_tables_append_columns": ["values_combined"],
+    },
+    "simple_probabilistic": {
+        "omnibus_tables": {
+            "values_combined": ["choices", "override_choices", "choosers", "probs"]
+        },
+        "omnibus_tables_append_columns": ["values_combined"],
+    },
+}
 
-def unlink_files(directory_path, file_types=("csv", "yaml")):
+
+def unlink_files(directory_path, file_types=("csv", "yaml", "parquet", "pkl")):
+    """
+    Deletes existing files in directory_path with file_types extensions.
+    """
+    if not os.path.exists(directory_path):
+        return
+
     for file_name in os.listdir(directory_path):
         if file_name.endswith(file_types):
             file_path = os.path.join(directory_path, file_name)
             try:
                 if os.path.isfile(file_path):
                     os.unlink(file_path)
-                    print(f"deleted {file_path}")
+                    logger.debug(f"deleted {file_path}")
             except Exception as e:
-                print(e)
+                logger.error(e)
+
+
+def estimation_enabled(state):
+    """
+    Returns True if estimation.yaml exists in the configs directory.
+    """
+    settings = state.filesystem.read_model_settings(
+        ESTIMATION_SETTINGS_FILE_NAME, mandatory=False
+    )
+    return settings is not None
+
+
+class SurveyTableConfig(PydanticBase):
+    file_name: str
+    index_col: str
+
+    # The dataframe is stored in the loaded config dynamically but not given
+    # directly in the config file, as it's not a simple serializable object that
+    # can be written in a YAML file.
+    class Config:
+        arbitrary_types_allowed = True
+
+    df: pd.DataFrame | None = None
+
+
+class EstimationTableRecipeConfig(PydanticBase):
+    omnibus_tables: dict[str, list[str]]
+    omnibus_tables_append_columns: list[str]
+
+
+class EstimationConfig(PydanticReadable):
+    SKIP_BUNDLE_WRITE_FOR: list[str] = []
+    """List of bundle names to skip writing to disk.
+
+    This is useful for saving disk space and decreasing runtime
+    if you do not care about the estimation output for all models.
+    """
+    EDB_FILETYPE: Literal["csv", "parquet", "pkl"] = "parquet"
+
+    DELETE_MP_SUBDIRS: bool = True
+    """Flag to delete the multiprocessing subdirectories after coalescing the results.
+
+    Typically only used for debugging purposes.
+    """
+
+    enable: bool = False
+    """Flag to enable estimation."""
+
+    bundles: list[str] = []
+    """List of component names to create EDBs for."""
+
+    estimation_table_types: dict[str, str] = {}
+    """Mapping of component names to estimation table types.
+
+    The keys of this mapping are the model component names, and the values are the
+    names of the estimation table recipes that should be used to generate the
+    estimation tables for the model component.  The recipes are generally related
+    to the generic model types, such as 'simple_simulate', 'interaction_simulate',
+    'interaction_sample_simulate', etc.
+    """
+
+    estimation_table_recipes: dict[str, EstimationTableRecipeConfig] = None
+    """This option has been removed from the user-facing configuration file.
+    
+    Mapping of estimation table recipe names to their configurations.
+
+    The keys of this mapping are the names of the estimation table recipes.
+    The recipes are generally related to the generic model types, such as
+    'simple_simulate', 'interaction_simulate', 'interaction_sample_simulate',
+    etc. The values are the configurations for the estimation table recipes.
+    """
+
+    @model_validator(mode="before")
+    def check_estimation_table_recipes(cls, values):
+        if (
+            "estimation_table_recipes" in values
+            and values["estimation_table_recipes"] is not None
+        ):
+            raise ValueError(
+                "estimation_table_recipes is no longer an accepted input. Please delete it from your estimation.yaml file."
+            )
+        return values
+
+    survey_tables: dict[str, SurveyTableConfig] = {}
+
+    # pydantic class validator to ensure that the estimation_table_types
+    # dictionary is a valid dictionary with string keys and string values, and
+    # that all the values are in the estimation_table_recipes dictionary
+    @model_validator(mode="after")
+    def validate_estimation_table_types(self):
+        for key, value in self.estimation_table_types.items():
+            if value not in ESTIMATION_TABLE_RECIPES:
+                raise ValueError(
+                    f"estimation_table_types value '{value}' not in estimation_table_recipes"
+                )
+        return self
 
 
 class Estimator:
     def __init__(
-        self, state: workflow.State, bundle_name, model_name, estimation_table_recipes
+        self,
+        state: workflow.State,
+        bundle_name: str,
+        model_name: str,
+        estimation_table_recipe: EstimationTableRecipeConfig,
+        settings: EstimationConfig,
     ):
         logger.info("Initialize Estimator for'%s'" % (model_name,))
 
@@ -41,8 +194,9 @@ class Estimator:
         self.bundle_name = bundle_name
         self.model_name = model_name
         self.settings_name = model_name
-        self.estimation_table_recipes = estimation_table_recipes
+        self.estimation_table_recipe = estimation_table_recipe
         self.estimating = True
+        self.settings = settings
 
         # ensure the output data directory exists
         output_dir = self.output_directory()
@@ -50,22 +204,21 @@ class Estimator:
             os.makedirs(output_dir)  # make directory if needed
 
         # delete estimation files
-        unlink_files(self.output_directory(), file_types=("csv", "yaml"))
+        unlink_files(self.output_directory())
         if self.bundle_name != self.model_name:
             # kind of inelegant to always delete these, but ok as they are redundantly recreated for each sub model
             unlink_files(
                 self.output_directory(bundle_directory=True),
-                file_types=("csv", "yaml"),
             )
 
         # FIXME - not required?
         # assert 'override_choices' in self.model_settings, \
         #     "override_choices not found for %s in %s." % (model_name, ESTIMATION_SETTINGS_FILE_NAME)
 
-        self.omnibus_tables = self.estimation_table_recipes["omnibus_tables"]
-        self.omnibus_tables_append_columns = self.estimation_table_recipes[
-            "omnibus_tables_append_columns"
-        ]
+        self.omnibus_tables = self.estimation_table_recipe.omnibus_tables
+        self.omnibus_tables_append_columns = (
+            self.estimation_table_recipe.omnibus_tables_append_columns
+        )
         self.tables = {}
         self.tables_to_cache = [
             table_name
@@ -139,6 +292,9 @@ class Estimator:
         if self.bundle_name != self.model_name and not bundle_directory:
             dir = os.path.join(dir, self.model_name)
 
+        if self.state.settings.multiprocess:
+            dir = os.path.join(dir, self.state.get_injectable("pipeline_file_prefix"))
+
         return dir
 
     def output_file_path(self, table_name, file_type=None, bundle_directory=False):
@@ -150,7 +306,9 @@ class Estimator:
         if bundle_directory:
             file_name = f"{self.bundle_name}_{table_name}"
         else:
-            if self.model_name == self.bundle_name:
+            if "_coefficients" in table_name:
+                file_name = f"{table_name}"
+            elif self.model_name == self.bundle_name:
                 file_name = f"{self.model_name}_{table_name}"
             else:
                 file_name = f"{self.bundle_name}_{table_name}"
@@ -160,8 +318,87 @@ class Estimator:
 
         return os.path.join(output_dir, file_name)
 
+    def write_parquet(self, df, file_path, index, append=False):
+        """Convert DF to be parquet compliant and write to disk"""
+        # Ensure column names are strings for parquet
+        df.columns = df.columns.astype(str)
+
+        assert (not os.path.isfile(file_path)) or (
+            append == True
+        ), f"file already exists: {file_path}"
+
+        # Explicitly set the data types of the columns
+        for col_name, col_data in df.items():
+            if "int" in str(col_data.dtype):
+                pass
+            elif (
+                col_data.dtype == "float16"
+            ):  # Handle halffloat type not allowed in parquet
+                df[col_name] = col_data.astype("float32")
+            elif "float" in str(col_data.dtype):
+                pass
+            elif col_data.dtype == "bool":
+                pass
+            elif col_data.dtype == "object":
+                # first try converting to numeric, if that fails, convert to string
+                try:
+                    df[col_name] = pd.to_numeric(col_data, errors="raise")
+                except ValueError:
+                    df[col_name] = col_data.astype(str)
+            else:
+                # Convert any other unsupported types to string
+                df[col_name] = col_data.astype(str)
+
+        self.debug(f"writing table: {file_path}")
+        # want parquet file to be exactly the same as df read from csv
+        # therefore we are resetting the index into a column if we want to keep it
+        # if we don't want to keep it, we are dropping it on write with index=False
+        if index:
+            if df.index.name in df.columns:
+                # replace old index with new one
+                df.drop(columns=[df.index.name], inplace=True)
+            df = df.reset_index(drop=False)
+
+        if append and os.path.isfile(file_path):
+            df.to_parquet(file_path, engine="fastparquet", append=True, index=False)
+        else:
+            df.to_parquet(file_path, index=False)
+
+    def write_pickle(self, df, file_path, index, append=False):
+        """Write DF to disk as pickle"""
+        file_path = file_path.replace(".csv", ".pkl").replace(".parquet", ".pkl")
+        assert file_path.endswith(".pkl")
+
+        # want pickle file to be exactly the same as df read from csv
+        # therefore we are resetting the index into a column if we want to keep it
+        # if we don't want to keep it, we are dropping it on write with index=False
+        if index:
+            if df.index.name in df.columns:
+                # replace old index with new one
+                df.drop(columns=[df.index.name], inplace=True)
+            df = df.reset_index(drop=False)
+        else:
+            df = df.reset_index(drop=True)
+
+        assert (not os.path.isfile(file_path)) or (
+            append == True
+        ), f"file already exists: {file_path}"
+
+        if append and os.path.isfile(file_path):
+            # read the previous df and concat
+            prev_df = pd.read_pickle(file_path)
+            df = pd.concat([prev_df, df])
+
+        df.to_pickle(file_path)
+
     def write_table(
-        self, df, table_name, index=True, append=True, bundle_directory=False
+        self,
+        df,
+        table_name,
+        index=True,
+        append=True,
+        bundle_directory=False,
+        filetype="csv",
     ):
         """
 
@@ -173,6 +410,8 @@ class Estimator:
         index: booelan
         append: boolean
         bundle_directory: boolean
+        filetype: str
+            csv or parquet or pkl
 
         """
 
@@ -186,21 +425,38 @@ class Estimator:
             else:
                 self.tables[table_name] = df.copy()
 
-        def write_table(df, table_name, index, append, bundle_directory):
-            if table_name.endswith(".csv"):
-                # pass through filename without adding model or bundle name prefix
-                file_path = os.path.join(
-                    self.output_directory(bundle_directory), table_name
-                )
-            else:
-                file_path = self.output_file_path(table_name, "csv", bundle_directory)
+        def write_table(df, table_name, index, append, bundle_directory, filetype):
+            # remove file extension if present
+            table_name = Path(table_name).stem
+            # set new full file path with desired file type
+            file_path = self.output_file_path(table_name, filetype, bundle_directory)
+
+            # check if file exists
             file_exists = os.path.isfile(file_path)
             if file_exists and not append:
                 raise RuntimeError(
                     "write_table %s append=False and file exists: %s"
                     % (table_name, file_path)
                 )
-            df.to_csv(file_path, mode="a", index=index, header=(not file_exists))
+            if filetype == "csv":
+                # check if index is in columns and drop it if so
+                if index and (df.index.name in df.columns):
+                    df.drop(columns=df.index.name, inplace=True)
+                df.to_csv(file_path, mode="a", index=index, header=(not file_exists))
+            elif filetype == "parquet":
+                try:
+                    self.write_parquet(df, file_path, index, append)
+                except Exception as e:
+                    logger.error(
+                        f"Error writing parquet: {file_path} because {e}, falling back to pickle"
+                    )
+                    self.write_pickle(df, file_path, index, append)
+            elif filetype == "pkl":
+                self.write_pickle(df, file_path, index, append)
+            else:
+                raise RuntimeError(
+                    f"Unsupported filetype: {filetype}, allowed options are csv, parquet, pkl"
+                )
 
         assert self.estimating
 
@@ -213,18 +469,14 @@ class Estimator:
             self.debug("write_table cache: %s" % table_name)
 
         if write:
-            write_table(df, table_name, index, append, bundle_directory)
+            write_table(df, table_name, index, append, bundle_directory, filetype)
             self.debug("write_table write: %s" % table_name)
 
     def write_omnibus_table(self):
         if len(self.omnibus_tables) == 0:
             return
 
-        settings = self.state.filesystem.read_model_settings(
-            ESTIMATION_SETTINGS_FILE_NAME, mandatory=False
-        )
-
-        edbs_to_skip = settings.get("SKIP_BUNDLE_WRITE_FOR", [])
+        edbs_to_skip = self.settings.SKIP_BUNDLE_WRITE_FOR
         if self.bundle_name in edbs_to_skip:
             self.debug(f"Skipping write to disk for {self.bundle_name}")
             return
@@ -252,16 +504,53 @@ class Estimator:
             else:
                 df = pd.concat([self.tables[t] for t in table_names], axis=concat_axis)
 
+            # remove duplicated columns, keeping the first instance
+            df = df.loc[:, ~df.columns.duplicated()]
+
+            # set index if not already set according to lowest level heirarchy
+            # df missing index is typically coming from interaction_simulate expression values
+            # important for sorting and thus for multiprocessing to be consistent with single
+            if df.index.name is None:
+                if "trip_id" in df.columns:
+                    df.set_index("trip_id", inplace=True)
+                elif "tour_id" in df.columns:
+                    df.set_index("tour_id", inplace=True)
+                elif "person_id" in df.columns:
+                    df.set_index("person_id", inplace=True)
+                elif "household_id" in df.columns:
+                    df.set_index("household_id", inplace=True)
+                else:
+                    RuntimeError(
+                        f"No index column found in omnibus table {omnibus_table}: {df}"
+                    )
+
             self.debug(f"sorting tables: {table_names}")
             df.sort_index(ascending=True, inplace=True, kind="mergesort")
 
-            file_path = self.output_file_path(omnibus_table, "csv")
-            assert not os.path.isfile(file_path)
+            filetype = self.settings.EDB_FILETYPE
 
-            self.debug(f"writing table: {file_path}")
-            df.to_csv(file_path, mode="a", index=True, header=True)
+            if filetype == "csv":
+                file_path = self.output_file_path(omnibus_table, "csv")
+                assert not os.path.isfile(file_path)
 
-            self.debug("write_omnibus_choosers: %s" % file_path)
+                self.debug(f"writing table: {file_path}")
+                # check if index is in columns and drop it if so
+                if df.index.name in df.columns:
+                    df.drop(columns=df.index.name, inplace=True)
+                df.to_csv(file_path, mode="a", index=True, header=True)
+
+            elif filetype == "parquet":
+                file_path = self.output_file_path(omnibus_table, "parquet")
+                self.write_parquet(df, file_path, index=True, append=False)
+
+            elif filetype == "pkl":
+                file_path = self.output_file_path(omnibus_table, "pkl")
+                self.write_pickle(df, file_path, index=True, append=False)
+
+            else:
+                raise RuntimeError(f"Unsupported filetype: {filetype}")
+
+            self.debug("wrote_omnibus_choosers: %s" % file_path)
 
     def write_dict(self, d, dict_name, bundle_directory):
         assert self.estimating
@@ -304,33 +593,48 @@ class Estimator:
         base_file_name = os.path.basename(file_name)
 
         assert self.estimating
-        self.write_table(coefficients_df, base_file_name, append=False)
+        self.write_table(coefficients_df, base_file_name, append=False, filetype="csv")
 
     def write_coefficients_template(self, model_settings):
         assert self.estimating
 
         if isinstance(model_settings, PydanticBase):
-            model_settings = model_settings.dict()
+            model_settings = model_settings.model_dump()
         coefficients_df = simulate.read_model_coefficient_template(
             self.state.filesystem, model_settings
         )
         tag = "coefficients_template"
-        self.write_table(coefficients_df, tag, append=False)
+        self.write_table(coefficients_df, tag, append=False, filetype="csv")
 
     def write_choosers(self, choosers_df):
-        self.write_table(choosers_df, "choosers", append=True)
+        self.write_table(
+            choosers_df,
+            "choosers",
+            append=True,
+            filetype=self.settings.EDB_FILETYPE,
+        )
 
     def write_choices(self, choices):
         if isinstance(choices, pd.Series):
             choices = choices.to_frame(name="model_choice")
         assert list(choices.columns) == ["model_choice"]
-        self.write_table(choices, "choices", append=True)
+        self.write_table(
+            choices,
+            "choices",
+            append=True,
+            filetype=self.settings.EDB_FILETYPE,
+        )
 
     def write_override_choices(self, choices):
         if isinstance(choices, pd.Series):
             choices = choices.to_frame(name="override_choice")
         assert list(choices.columns) == ["override_choice"]
-        self.write_table(choices, "override_choices", append=True)
+        self.write_table(
+            choices,
+            "override_choices",
+            append=True,
+            filetype=self.settings.EDB_FILETYPE,
+        )
 
     def write_constants(self, constants):
         self.write_dict(self, constants, "model_constants")
@@ -368,7 +672,7 @@ class Estimator:
             )
             assert not os.path.isfile(file_path)
             with open(file_path, "w") as f:
-                safe_dump(model_settings.dict(), f)
+                safe_dump(model_settings.model_dump(), f)
         else:
             if "include_settings" in model_settings:
                 file_path = self.output_file_path(
@@ -386,68 +690,21 @@ class Estimator:
                     model_settings, "inherited_model_settings", bundle_directory
                 )
 
-    def melt_alternatives(self, df):
-        alt_id_name = self.alt_id_column_name
-
-        assert alt_id_name is not None, (
-            "alt_id not set. Did you forget to call set_alt_id()? (%s)"
-            % self.model_name
-        )
-        assert (
-            alt_id_name in df
-        ), "alt_id_column_name '%s' not in alternatives table (%s)" % (
-            alt_id_name,
-            self.model_name,
-        )
-
-        variable_column = "variable"
-
-        #            alt_dest  util_dist_0_1  util_dist_1_2  ...
-        # person_id                                          ...
-        # 31153             1            1.0           0.75  ...
-        # 31153             2            1.0           0.46  ...
-        # 31153             3            1.0           0.28  ...
-
-        if df.index.name is not None:
-            chooser_name = df.index.name
-            assert self.chooser_id_column_name in (chooser_name, None)
-            df = df.reset_index()
-        else:
-            assert self.chooser_id_column_name is not None
-            chooser_name = self.chooser_id_column_name
-            assert chooser_name in df
-
-        # mergesort is the only stable sort, and we want the expressions to appear in original df column order
-        melt_df = (
-            pd.melt(df, id_vars=[chooser_name, alt_id_name])
-            .sort_values(by=chooser_name, kind="mergesort")
-            .rename(columns={"variable": variable_column})
-        )
-
-        # person_id,alt_dest,expression,value
-        # 31153,1,util_dist_0_1,1.0
-        # 31153,2,util_dist_0_1,1.0
-        # 31153,3,util_dist_0_1,1.0
-
-        melt_df = melt_df.set_index(
-            [chooser_name, variable_column, alt_id_name]
-        ).unstack(2)
-        melt_df.columns = melt_df.columns.droplevel(0)
-        melt_df = melt_df.reset_index(1)
-
-        # person_id,expression,1,2,3,4,5,...
-        # 31153,util_dist_0_1,0.75,0.46,0.27,0.63,0.48,...
-        # 31153,util_dist_1_2,0.0,0.0,0.0,0.0,0.0,...
-        # 31153,util_dist_2_3,0.0,0.0,0.0,0.0,0.0,...
-
-        return melt_df
-
     def write_interaction_expression_values(self, df):
-        df = self.melt_alternatives(df)
-        self.write_table(df, "interaction_expression_values", append=True)
+        self.write_table(
+            df,
+            "interaction_expression_values",
+            append=True,
+            filetype=self.settings.EDB_FILETYPE,
+        )
 
     def write_expression_values(self, df):
-        self.write_table(df, "expression_values", append=True)
+        self.write_table(
+            df,
+            "expression_values",
+            append=True,
+            filetype=self.settings.EDB_FILETYPE,
+        )
 
     def write_alternatives(self, alternatives_df, bundle_directory=False):
         self.write_table(
@@ -458,15 +715,19 @@ class Estimator:
         )
 
     def write_interaction_sample_alternatives(self, alternatives_df):
-        alternatives_df = self.melt_alternatives(alternatives_df)
         self.write_table(
-            alternatives_df, "interaction_sample_alternatives", append=True
+            alternatives_df,
+            "interaction_sample_alternatives",
+            append=True,
+            filetype=self.settings.EDB_FILETYPE,
         )
 
     def write_interaction_simulate_alternatives(self, interaction_df):
-        interaction_df = self.melt_alternatives(interaction_df)
         self.write_table(
-            interaction_df, "interaction_simulate_alternatives", append=True
+            interaction_df,
+            "interaction_simulate_alternatives",
+            append=True,
+            filetype=self.settings.EDB_FILETYPE,
         )
 
     def get_survey_values(self, model_values, table_name, column_names):
@@ -498,9 +759,11 @@ class EstimationManager(object):
     def __init__(self):
         self.settings_initialized = False
         self.bundles = []
-        self.estimation_table_recipes = {}
-        self.model_estimation_table_types = {}
+        self.estimation_table_recipes: dict[str, EstimationTableRecipeConfig] = {}
+        self.estimation_table_types: dict[str, str] = {}
         self.estimating = {}
+        self.settings = None
+        self.enabled = False
 
     def initialize_settings(self, state):
         # FIXME - can't we just initialize in init and handle no-presence of settings file as not enabled
@@ -508,46 +771,53 @@ class EstimationManager(object):
             return
 
         assert not self.settings_initialized
-        settings = state.filesystem.read_model_settings(
-            ESTIMATION_SETTINGS_FILE_NAME, mandatory=False
+        self.settings = EstimationConfig.read_settings_file(
+            state.filesystem, ESTIMATION_SETTINGS_FILE_NAME, mandatory=False
         )
-        if not settings:
-            # if the model settings file is not found, we are not in estimation mode.
+        if not self.settings:
+            # if the model self.settings file is not found, we are not in estimation mode.
             self.enabled = False
         else:
-            self.enabled = settings.get("enable", "True")
-        self.bundles = settings.get("bundles", [])
+            self.enabled = self.settings.enable
+        self.bundles = self.settings.bundles
 
-        self.model_estimation_table_types = settings.get(
-            "model_estimation_table_types", {}
-        )
-        self.estimation_table_recipes = settings.get("estimation_table_recipes", {})
+        self.estimation_table_types = self.settings.estimation_table_types
+        self.estimation_table_recipes = ESTIMATION_TABLE_RECIPES
 
         if self.enabled:
-            self.survey_tables = settings.get("survey_tables", {})
+            self.survey_tables = self.settings.survey_tables
             for table_name, table_info in self.survey_tables.items():
                 assert (
-                    "file_name" in table_info
-                ), "No file name specified for survey_table '%s' in %s" % (
-                    table_name,
-                    ESTIMATION_SETTINGS_FILE_NAME,
-                )
+                    table_info.file_name
+                ), f"No file name specified for survey_table '{table_name}' in {ESTIMATION_SETTINGS_FILE_NAME}"
                 file_path = state.filesystem.get_data_file_path(
-                    table_info["file_name"], mandatory=True
+                    table_info.file_name, mandatory=True
                 )
                 assert os.path.exists(
                     file_path
                 ), "File for survey table '%s' not found: %s" % (table_name, file_path)
                 df = pd.read_csv(file_path)
-                index_col = table_info.get("index_col")
+                index_col = table_info.index_col
                 if index_col is not None:
                     assert (
                         index_col in df.columns
                     ), "Index col '%s' not in survey_table '%s' in file: %s % (index_col, table_name, file_path)"
                     df.set_index(index_col, inplace=True)
 
+                # if multiprocessing then only return the households that are in the pipeline
+                if state.settings.multiprocess:
+                    pipeline_hh_ids = state.get_table("households").index
+                    if table_name == "households":
+                        df = df.reindex(pipeline_hh_ids)
+                        assert pipeline_hh_ids.equals(
+                            df.index
+                        ), "household_ids not equal between survey and pipeline"
+                    else:
+                        assert "household_id" in df.columns
+                        df = df[df.household_id.isin(pipeline_hh_ids)]
+
                 # add the table df to survey_tables
-                table_info["df"] = df
+                table_info.df = df
 
         self.settings_initialized = True
 
@@ -589,13 +859,13 @@ class EstimationManager(object):
         ), "Cant begin estimating %s - already estimating that model." % (model_name,)
 
         assert (
-            bundle_name in self.model_estimation_table_types
+            bundle_name in self.estimation_table_types
         ), "No estimation_table_type for %s in %s." % (
             bundle_name,
             ESTIMATION_SETTINGS_FILE_NAME,
         )
 
-        model_estimation_table_type = self.model_estimation_table_types[bundle_name]
+        model_estimation_table_type = self.estimation_table_types[bundle_name]
 
         assert (
             model_estimation_table_type in self.estimation_table_recipes
@@ -609,9 +879,10 @@ class EstimationManager(object):
             state,
             bundle_name,
             model_name,
-            estimation_table_recipes=self.estimation_table_recipes[
-                model_estimation_table_type
-            ],
+            estimation_table_recipe=EstimationTableRecipeConfig(
+                **self.estimation_table_recipes[model_estimation_table_type]
+            ),
+            settings=self.settings,
         )
 
         return self.estimating[model_name]
@@ -626,7 +897,7 @@ class EstimationManager(object):
                 "EstimationManager. get_survey_table: survey table '%s' not in survey_tables"
                 % table_name
             )
-        df = self.survey_tables[table_name].get("df")
+        df = self.survey_tables[table_name].df
         return df
 
     def get_survey_values(self, model_values, table_name, column_names):
@@ -735,6 +1006,82 @@ class EstimationManager(object):
                         values[c] = values[c].astype(model_values[c].dtype)
 
         return values[column_name] if column_name else values
+
+    def get_survey_destination_choices(self, state, choosers, trace_label):
+        """
+        Returning the survey choices for the destination choice model.
+        This gets called from inside interaction_sample and is used to
+        ensure the choices include the override choices when sampling alternatives.
+
+        Parameters
+        ----------
+        state : workflow.State
+        trace_label : str
+            The model name.
+
+        Returns
+        -------
+        pd.Series : The survey choices for the destination choice model.
+        """
+        if "accessibilities" in trace_label:
+            # accessibilities models to not have survey values
+            return None
+
+        model = trace_label.split(".")[0]
+        if model == "school_location":
+            survey_choices = manager.get_survey_values(
+                choosers.index, "persons", "school_zone_id"
+            )
+        elif model == "workplace_location":
+            survey_choices = manager.get_survey_values(
+                choosers.index, "persons", "workplace_zone_id"
+            )
+        elif model in [
+            "joint_tour_destination",
+            "atwork_subtour_destination",
+            "non_mandatory_tour_destination",
+        ]:
+            survey_choices = manager.get_survey_values(
+                choosers.index, "tours", "destination"
+            )
+        elif model == "trip_destination":
+            survey_choices = manager.get_survey_values(
+                choosers.index, "trips", "destination"
+            )
+        elif model == "parking_location":
+            # need to grab parking location column name from its settings
+            from activitysim.abm.models.parking_location_choice import (
+                ParkingLocationSettings,
+            )
+
+            model_settings = ParkingLocationSettings.read_settings_file(
+                state.filesystem,
+                "parking_location_choice.yaml",
+            )
+            survey_choices = manager.get_survey_values(
+                choosers.index, "trips", model_settings.ALT_DEST_COL_NAME
+            )
+        else:
+            # since this fucntion is called from inside interaction_sample,
+            # we don't want to return anything for other models that aren't destination choice
+            # not implemented models include scheduling models and tour_od_choice
+            logger.debug(f"Not grabbing survey choices for {model}.")
+            return None
+
+        if "presample.interaction_sample" in trace_label:
+            # presampling happens for destination choice of two-zone systems.
+            # They are pre-sampling TAZs but the survey value destination is MAZs.
+            land_use = state.get_table("land_use")
+            TAZ_col = "TAZ" if "TAZ" in land_use.columns else "taz"
+            assert (
+                TAZ_col in land_use.columns
+            ), "Cannot find TAZ column in land_use table."
+            maz_to_taz_map = land_use[TAZ_col].to_dict()
+            # allow for unmapped TAZs
+            maz_to_taz_map[-1] = -1
+            survey_choices = survey_choices.map(maz_to_taz_map)
+
+        return survey_choices
 
 
 manager = EstimationManager()

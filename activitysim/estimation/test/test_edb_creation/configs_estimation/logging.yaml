@@ -1,0 +1,67 @@
+# Config for logging
+# ------------------
+# See http://docs.python.org/2.7/library/logging.config.html#configuration-dictionary-schema
+
+logging:
+  version: 1
+  disable_existing_loggers: true
+
+
+  # Configuring the default (root) logger is highly recommended
+  root:
+    level: NOTSET
+    handlers: [console, logfile, elogfile]
+
+  loggers:
+
+    estimation:
+      level: DEBUG
+      handlers: [console, elogfile]
+      propagate: false
+
+    activitysim:
+      level: INFO
+      handlers: [console, logfile]
+      propagate: false
+
+    orca:
+      level: WARN
+      handlers: [console, logfile]
+      propagate: false
+
+  handlers:
+
+    elogfile:
+      class: logging.FileHandler
+      filename:
+        get_log_file_path: 'estimation.log'
+      mode: w
+      formatter: fileFormatter
+      level: NOTSET
+
+    logfile:
+      class: logging.FileHandler
+      filename:
+        get_log_file_path: 'activitysim.log'
+      mode: w
+      formatter: fileFormatter
+      level: NOTSET
+
+    console:
+      class: logging.StreamHandler
+      stream: ext://sys.stdout
+      formatter: simpleFormatter
+      level: NOTSET
+
+  formatters:
+
+    simpleFormatter:
+      class: logging.Formatter
+      # format: '%(levelname)s - %(name)s - %(message)s'
+      format: '%(levelname)s - %(message)s'
+      datefmt: '%d/%m/%Y %H:%M:%S'
+
+    fileFormatter:
+      class: logging.Formatter
+      format: '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+      datefmt: '%d/%m/%Y %H:%M:%S'

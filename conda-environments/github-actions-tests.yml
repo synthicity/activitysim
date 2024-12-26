@@ -12,13 +12,14 @@ dependencies:
 - cytoolz = 0.12.2
 - dask = 2023.3.2
 - isort = 5.12.0
+- matplotlib = 3.9.*
 - nbmake = 1.4.6
-- numba = 0.57.*
+- numba = 0.60.*
 - numpy = 1.23.5
 - openmatrix = 0.3.5.0
 - orca = 1.8
 - pandera >= 0.15, <0.18.1
-- pandas = 1.4.*
+- pandas = 1.5.*
 - platformdirs = 3.2.*
 - psutil = 5.9.*
 - pyarrow = 11.*
@@ -36,5 +37,6 @@ dependencies:
 - simwrapper > 1.7
 - sparse
 - xarray = 2023.2.*
+- xlsxwriter = 3.2.*
 - zarr = 2.14.*
 - zstandard

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import collections
 import os
+import pickle
+import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Collection
-import pickle
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import yaml
-from larch import DataFrames, Model, P, X
+from larch import Dataset, Model, P, X
 from larch.util import Dict
 
 from .general import (
@@ -37,6 +39,23 @@ def size_coefficients_from_spec(size_spec):
     return size_coef
 
 
+LocationChoiceData = collections.namedtuple(
+    "LocationChoiceData",
+    field_names=[
+        "edb_directory",
+        "alt_values",
+        "chooser_data",
+        "coefficients",
+        "landuse",
+        "spec",
+        "size_spec",
+        "master_size_spec",
+        "model_selector",
+        "settings",
+    ],
+)
+
+
 def location_choice_model(
     name="workplace_location",
     edb_directory="output/estimation_data_bundle/{name}/",
@@ -50,7 +69,9 @@ def location_choice_model(
     return_data=False,
     alt_values_to_feather=False,
     chunking_size=None,
-):
+    *,
+    alts_in_cv_format=False,
+) -> Model | tuple[Model, LocationChoiceData]:
     model_selector = name.replace("_location", "")
     model_selector = model_selector.replace("_destination", "")
     model_selector = model_selector.replace("_subtour", "")
@@ -60,8 +81,12 @@ def location_choice_model(
     edb_directory = edb_directory.format(name=name)
 
     def _read_csv(filename, **kwargs):
-        filename = filename.format(name=name)
-        return pd.read_csv(os.path.join(edb_directory, filename), **kwargs)
+        filename = Path(edb_directory).joinpath(filename.format(name=name))
+        if filename.with_suffix(".parquet").exists():
+            print("loading from", filename.with_suffix(".parquet"))
+            return pd.read_parquet(filename.with_suffix(".parquet"), **kwargs)
+        print("loading from", filename)
+        return pd.read_csv(filename, **kwargs)
 
     def _read_feather(filename, **kwargs):
         filename = filename.format(name=name)
@@ -179,7 +204,10 @@ def location_choice_model(
 
     if label_column_name == "Expression":
         spec.insert(0, "Label", spec["Expression"].map(expression_labels))
-        alt_values["variable"] = alt_values["variable"].map(expression_labels)
+        if alts_in_cv_format:
+            alt_values["variable"] = alt_values["variable"].map(expression_labels)
+        else:
+            alt_values = alt_values.rename(columns=expression_labels)
         label_column_name = "Label"
 
     if name == "trip_destination":
@@ -194,44 +222,58 @@ def location_choice_model(
         k, m = divmod(len(a), n)
         return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
 
-    # process x_ca with cv_to_ca with or without chunking
-    x_ca_pickle_file = "{name}_x_ca.pkl"
-    if chunking_size == None:
-        x_ca = cv_to_ca(
-            alt_values.set_index([chooser_index_name, alt_values.columns[1]])
-        )
-    elif _file_exists(x_ca_pickle_file):
-        # if pickle file from previous x_ca processing exist, load it to save time
-        time_start = datetime.now()
-        x_ca = _read_pickle(x_ca_pickle_file)
-        print(
-            f"x_ca data loaded from {name}_x_ca.fea - time elapsed {(datetime.now() - time_start).total_seconds()}"
-        )
-    else:
-        time_start = datetime.now()
-        # calculate num_chunks based on chunking_size (or max number of rows per chunk)
-        num_chunks = int(len(alt_values) / chunking_size)
-        id_col_name = alt_values.columns[0]
-        all_ids = list(alt_values[id_col_name].unique())
-        split_ids = list(split(all_ids, num_chunks))
-        x_ca_list = []
-        i = 0
-        for chunk_ids in split_ids:
-            alt_values_i = alt_values[alt_values[id_col_name].isin(chunk_ids)]
-            x_ca_i = cv_to_ca(
-                alt_values_i.set_index([chooser_index_name, alt_values_i.columns[1]])
+    if alts_in_cv_format:
+        # if alternatives are in CV format, convert them to CA format.
+        # The CV format has the chooser index as the first column and the variable name
+        # as the second column, with values for each alternative in the remaining columns.
+        # This format is inefficient and deprecated as of ActivitySim version 1.4.
+
+        # process x_ca with cv_to_ca with or without chunking
+        x_ca_pickle_file = "{name}_x_ca.pkl"
+        if chunking_size == None:
+            x_ca = cv_to_ca(
+                alt_values.set_index([chooser_index_name, alt_values.columns[1]])
             )
-            x_ca_list.append(x_ca_i)
+        elif _file_exists(x_ca_pickle_file):
+            # if pickle file from previous x_ca processing exist, load it to save time
+            time_start = datetime.now()
+            x_ca = _read_pickle(x_ca_pickle_file)
             print(
-                f"\rx_ca_i compute done for chunk {i}/{num_chunks} - time elapsed {(datetime.now() - time_start).total_seconds()}"
+                f"x_ca data loaded from {name}_x_ca.fea - time elapsed {(datetime.now() - time_start).total_seconds()}"
             )
-            i = i + 1
-        x_ca = pd.concat(x_ca_list, axis=0)
-        # save final x_ca result as pickle file to save time for future data loading
-        _to_pickle(df=x_ca, filename=x_ca_pickle_file)
-        print(
-            f"x_ca compute done - time elapsed {(datetime.now() - time_start).total_seconds()}"
-        )
+        else:
+            time_start = datetime.now()
+            # calculate num_chunks based on chunking_size (or max number of rows per chunk)
+            num_chunks = int(len(alt_values) / chunking_size)
+            id_col_name = alt_values.columns[0]
+            all_ids = list(alt_values[id_col_name].unique())
+            split_ids = list(split(all_ids, num_chunks))
+            x_ca_list = []
+            i = 0
+            for chunk_ids in split_ids:
+                alt_values_i = alt_values[alt_values[id_col_name].isin(chunk_ids)]
+                x_ca_i = cv_to_ca(
+                    alt_values_i.set_index(
+                        [chooser_index_name, alt_values_i.columns[1]]
+                    )
+                )
+                x_ca_list.append(x_ca_i)
+                print(
+                    f"\rx_ca_i compute done for chunk {i}/{num_chunks} - time elapsed {(datetime.now() - time_start).total_seconds()}"
+                )
+                i = i + 1
+            x_ca = pd.concat(x_ca_list, axis=0)
+            # save final x_ca result as pickle file to save time for future data loading
+            _to_pickle(df=x_ca, filename=x_ca_pickle_file)
+            print(
+                f"x_ca compute done - time elapsed {(datetime.now() - time_start).total_seconds()}"
+            )
+    else:
+        # otherwise, we assume that the alternatives are already in the correct IDCA format with
+        # the cases and alternatives as the first two columns, and the variables as the
+        # remaining columns.  This is a much more efficient format for the data.
+        assert alt_values.columns[0] == chooser_index_name
+        x_ca = alt_values.set_index([chooser_index_name, alt_values.columns[1]])
 
     if CHOOSER_SEGMENT_COLUMN_NAME is not None:
         # label segments with names
@@ -263,23 +305,39 @@ def location_choice_model(
 
     # Remove choosers with invalid observed choice (appropriate total size value = 0)
     valid_observed_zone = x_co["total_size_segment"] > 0
+    prior_n_cases = len(x_co)
     x_co = x_co[valid_observed_zone]
     x_ca = x_ca[x_ca.index.get_level_values(chooser_index_name).isin(x_co.index)]
+    after_n_cases = len(x_co)
+    if prior_n_cases != after_n_cases:
+        warnings.warn(
+            f"Removed {prior_n_cases - after_n_cases} choosers with invalid (zero-sized) observed choice",
+            stacklevel=2,
+        )
 
     # Merge land use characteristics into CA data
-    try:
-        x_ca_1 = pd.merge(x_ca, landuse, on="zone_id", how="left")
-    except KeyError:
-        # Missing the zone_id variable?
-        # Use the alternative id's instead, which assumes no sampling of alternatives
-        x_ca_1 = pd.merge(
-            x_ca,
-            landuse,
-            left_on=x_ca.index.get_level_values(1),
-            right_index=True,
-            how="left",
-        )
-    x_ca_1.index = x_ca.index
+    x_ca_1 = pd.merge(
+        x_ca, landuse, left_on=x_ca.index.get_level_values(1), right_index=True
+    )
+    x_ca_1 = x_ca_1.sort_index()
+
+    # relabel zones to reduce memory usage.
+    # We will core the original zone ids in a new column _original_zone_id,
+    # and create a new index with a dummy zone id.  This way, if we have sampled
+    # only a subset of 30 zones, then we only need 30 unique alternatives in the
+    # data structure.
+    original_zone_ids = x_ca_1.index.get_level_values(1)
+
+    dummy_zone_ids_index = pd.MultiIndex.from_arrays(
+        [
+            x_ca_1.index.get_level_values(0),
+            x_ca_1.groupby(level=0).cumcount() + 1,
+        ],
+        names=[x_ca_1.index.names[0], "dummy_zone_id"],
+    )
+    x_ca_1.index = dummy_zone_ids_index
+    x_ca_1["_original_zone_id"] = original_zone_ids
+    choice_def = {"choice_ca_var": "override_choice == _original_zone_id"}
 
     # Availability of choice zones
     if "util_no_attractions" in x_ca_1:
@@ -287,22 +345,44 @@ def location_choice_model(
             x_ca_1["util_no_attractions"]
             .apply(lambda x: False if x == 1 else True)
             .astype(np.int8)
+            .to_xarray()
         )
     elif "@df['size_term']==0" in x_ca_1:
         av = (
             x_ca_1["@df['size_term']==0"]
             .apply(lambda x: False if x == 1 else True)
             .astype(np.int8)
+            .to_xarray()
+        )
+    elif expression_labels is not None and "@df['size_term']==0" in expression_labels:
+        av = (
+            x_ca_1[expression_labels["@df['size_term']==0"]]
+            .apply(lambda x: False if x == 1 else True)
+            .astype(np.int8)
+            .to_xarray()
         )
     else:
-        av = 1
+        av = None
 
     assert len(x_co) > 0, "Empty chooser dataframe"
     assert len(x_ca_1) > 0, "Empty alternatives dataframe"
 
-    d = DataFrames(co=x_co, ca=x_ca_1, av=av)
+    d_ca = Dataset.construct.from_idca(x_ca_1)
+    d_co = Dataset.construct.from_idco(x_co)
+    d = d_ca.merge(d_co)
+    if av is not None:
+        d["_avail_"] = av
 
-    m = Model(dataservice=d)
+    m = Model(datatree=d, compute_engine="numba")
+
+    # One of the alternatives might be coded as 0, so
+    # we need to explicitly initialize the MNL nesting graph
+    # and set to root_id to a value other than zero.
+    root_id = 0
+    if root_id in d.dc.altids():
+        root_id = -1
+    m.initialize_graph(alternative_codes=d.dc.altids(), root_id=root_id)
+
     if len(spec.columns) == 4 and all(
         spec.columns == ["Label", "Description", "Expression", "coefficient"]
     ):
@@ -311,6 +391,8 @@ def location_choice_model(
             x_col="Label",
             p_col=spec.columns[-1],
             ignore_x=("local_dist",),
+            x_validator=d,
+            expr_col="Expression",
         )
     elif (
         len(spec.columns) == 4
@@ -323,6 +405,8 @@ def location_choice_model(
             x_col="Label",
             p_col=spec.columns[-1],
             ignore_x=("local_dist",),
+            x_validator=d,
+            expr_col="Expression",
         )
     else:
         m.utility_ca = linear_utility_from_spec(
@@ -331,6 +415,8 @@ def location_choice_model(
             p_col=SEGMENT_IDS,
             ignore_x=("local_dist",),
             segment_id=CHOOSER_SEGMENT_COLUMN_NAME,
+            x_validator=d,
+            expr_col="Expression",
         )
 
     if CHOOSER_SEGMENT_COLUMN_NAME is None:
@@ -354,12 +440,16 @@ def location_choice_model(
     apply_coefficients(coefficients, m, minimum=-25, maximum=25)
     apply_coefficients(size_coef, m, minimum=-6, maximum=6)
 
-    m.choice_co_code = "override_choice"
+    m.choice_def(choice_def)
+    if av is not None:
+        m.availability_ca_var = "_avail_"
+    else:
+        m.availability_any = True
 
     if return_data:
         return (
             m,
-            Dict(
+            LocationChoiceData(
                 edb_directory=Path(edb_directory),
                 alt_values=alt_values,
                 chooser_data=chooser_data,

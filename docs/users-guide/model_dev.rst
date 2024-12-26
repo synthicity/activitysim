@@ -11,30 +11,54 @@ Input Data Preparation
 Estimation
 ----------
 
-ActivitySim includes the ability to re-estimate submodels using choice model estimation tools
-such as `larch <https://larch.newman.me/>`__.  To do so, ActivitySim adopts the concept of an estimation
-data bundle (EDB), which is a collection of the necessary data to re-estimate a submodel.  For example, for the auto ownership submodel,
+ActivitySim includes the ability to re-estimate submodels using choice model estimation
+tools such as `larch <https://larch.driftless.xyz/>`__.  To do so, ActivitySim adopts
+the concept of an estimation data bundle (EDB), which is a collection of the necessary
+data to re-estimate a submodel.  For example, for the auto ownership submodel,
 the EDB consists of the following files:
 
-* model settings - the auto_ownership_model_settings.yaml file
-* coefficients - the auto_ownership_coefficients.csv file with each coefficient name, value, and constrain set to True or False if the coefficient is estimatable
-* utilities specification - the auto_ownership_SPEC.csv utility expressions file
-* chooser and alternatives data - the auto_ownership_values_combined.csv file with all chooser and alternatives data such as household information, land use information, and the utility data components for each alternative
+*   model settings - the auto_ownership_model_settings.yaml file
 
-ActivitySim also includes Jupyter :ref:`estimation_example_notebooks` for estimating submodels with larch, as well as an ``activitysim.estimation.larch`` submodule that transforms EDBs into larch models.  Additional estimation software translators can be added later if desired.
+*   coefficients - the auto_ownership_coefficients.csv file with each coefficient
+    name, value, and constrain set to True or False if the coefficient is estimatable
 
-The combination of writing an EDB for a submodel + a larch estimation notebook means users can easily re-estimate submodels. This
-combination of functionality means:
+*   utilities specification - the auto_ownership_SPEC.csv utility expressions file
 
-* There is no duplication of model specifications. ActivitySim owns the specification and larch pivots off of it.  Users code model specifications and utility expressions in ActivitySim so as to facilitate ease of use and eliminate inconsistencies and errors between the code used to estimate the models and the code used to apply the models.
-* The EDB includes all the data and model structure information and the ``activitysim.estimation.larch`` submodule used by the example notebooks transforms the EDB to larch's data model for estimation.
-* Users are able to add zones, alternatives, new chooser data, new taz data, new modes, new coefficients, revise utilities, and revise nesting structures in ActivitySim and larch responds accordingly.
-* Eventually it may be desirable for ActivitySim to automatically write larch estimators (or other types of estimators), but for now the integration is loosely coupled rather than tightly coupled in order to provide flexibility.
+*   chooser and alternatives data - the auto_ownership_values_combined.csv file with
+    all chooser and alternatives data such as household information, land use
+    information, and the utility data components for each alternative
+
+ActivitySim also includes Jupyter :ref:`estimation_example_notebooks` for estimating
+submodels with larch, as well as an ``activitysim.estimation.larch`` submodule that
+transforms EDBs into larch models.  Additional estimation software translators can
+be added later if desired.
+
+The combination of writing an EDB for a submodel + a larch estimation notebook
+means users can easily re-estimate submodels. This combination of functionality means:
+
+*   There is no duplication of model specifications. ActivitySim owns the specification
+    and larch pivots off of it.  Users code model specifications and utility expressions
+    in ActivitySim so as to facilitate ease of use and eliminate inconsistencies and
+    errors between the code used to estimate the models and the code used to apply the
+    models.
+
+*   The EDB includes all the data and model structure information and the
+    ``activitysim.estimation.larch`` submodule used by the example notebooks transforms
+    the EDB to larch's data model for estimation.
+
+*   Users are able to add zones, alternatives, new chooser data, new taz data, new
+    modes, new coefficients, revise utilities, and revise nesting structures in
+    ActivitySim and larch responds accordingly.
+
+*   In the future ActivitySim may be more tightly coupled to Larch, but for now the
+    integration is loosely coupled to provide flexibility. Users preferring a different
+    estimation tool can write their own translator.
 
 Workflow
 ~~~~~~~~
 
-The general workflow for estimating models is shown in the following figures and explained in more detail below.
+The general workflow for estimating models is shown in the following figures and
+explained in more detail below.
 
 .. image:: ../images/estimation_tools.jpg
 

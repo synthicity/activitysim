@@ -29,55 +29,7 @@ survey_tables:
     file_name:  trips_survey.csv
     index_col: trip_id
 
-estimation_table_recipes:
-
-  interaction_sample_simulate:
-    omnibus_tables:
-      choosers_combined:
-        - choices
-        - override_choices
-        - choosers
-      alternatives_combined:
-        - interaction_sample_alternatives
-        - interaction_expression_values
-    omnibus_tables_append_columns: [choosers_combined]
-
-  interaction_simulate:
-    omnibus_tables:
-      choosers_combined:
-        - choices
-        - override_choices
-        - choosers
-    omnibus_tables_append_columns: [choosers_combined]
-
-  simple_simulate:
-    omnibus_tables:
-      values_combined:
-        - choices
-        - override_choices
-        - expression_values
-        - choosers
-    omnibus_tables_append_columns: [values_combined]
-
-  cdap_simulate:
-    omnibus_tables:
-      values_combined:
-        - choices
-        - override_choices
-        - choosers
-    omnibus_tables_append_columns: [values_combined]
-
-  simple_probabilistic:
-    omnibus_tables:
-      values_combined:
-        - choices
-        - override_choices
-        - choosers
-        - probs
-    omnibus_tables_append_columns: [values_combined]
-
-
-model_estimation_table_types:
+estimation_table_types:
   tour_scheduling_probabilistic: simple_probabilistic
   tour_od_choice: interaction_sample_simulate
   school_location: interaction_sample_simulate

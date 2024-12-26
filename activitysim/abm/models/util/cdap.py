@@ -969,6 +969,7 @@ def household_activity_choices(
             spec,
             choosers,
             trace_label=trace_label,
+            have_trace_targets=(trace_hh_id in choosers.index),
             chunk_sizer=chunk_sizer,
             compute_settings=compute_settings,
         )
@@ -984,14 +985,15 @@ def household_activity_choices(
             interaction_coefficients,
             hhsize,
             trace_spec=(trace_hh_id in choosers.index),
-            trace_label=trace_label,
+            trace_label=tracing.extend_trace_label(trace_label, "joint"),
         )
 
         joint_tour_utils = simulate.eval_utilities(
             state,
             joint_tour_spec,
             choosers,
-            trace_label=trace_label,
+            trace_label=tracing.extend_trace_label(trace_label, "joint"),
+            have_trace_targets=(trace_hh_id in choosers.index),
             chunk_sizer=chunk_sizer,
             compute_settings=compute_settings,
         )

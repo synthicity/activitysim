@@ -27,19 +27,18 @@ dependencies:
 - ipykernel  # so this env will appear in jupyter as a selection
 - isort
 - jupyterlab
-- larch = 5.7.*
 - matplotlib
 - myst-parser  # allows markdown in sphinx
 - nbconvert
 - nbformat
 - nbmake
-- numba = 0.57.*
+- numba = 0.60.*
 - numexpr
 - numpy = 1.23.*
 - numpydoc
 - openmatrix = 0.3.*
 - orca = 1.8
-- pandas = 1.4.*
+- pandas = 1.5.*
 - pandera >= 0.15, <0.18.1
 - platformdirs = 3.2.*
 - pre-commit
@@ -75,4 +74,5 @@ dependencies:
 
 - pip:
   - autodoc_pydantic
+  - larch6 >= 6.0.34
   - -e ..

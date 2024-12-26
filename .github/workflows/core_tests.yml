@@ -408,8 +408,8 @@ jobs:
           conda env update -n asim-test -f conda-environments/github-actions-tests.yml
         if: steps.cache.outputs.cache-hit != 'true'
 
-      - name: Install Larch
-        run: mamba install "larch>=5.7.1"
+      - name: Install Larch v6
+        run: python -m pip install larch6
 
       - name: Install activitysim
         # installing without dependencies is faster, we trust that all needed dependencies
@@ -426,6 +426,118 @@ jobs:
       - name: Test Estimation Mode
         run: |
           python -m pytest activitysim/estimation/test/test_larch_estimation.py --durations=0
+
+  estimation_notebooks:
+    needs: foundation
+    env:
+      python-version: "3.10"
+      label: linux-64
+    defaults:
+      run:
+        shell: bash -l {0}
+    name: Estimation Notebooks Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: asim-test
+          python-version: ${{ env.python-version }}
+
+      - name: Set cache date for year and month
+        run: echo "DATE=$(date +'%Y%m')" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.CONDA }}/envs
+          key: ${{ env.label }}-conda-${{ hashFiles('conda-environments/github-actions-tests.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
+        id: cache
+
+      - name: Update environment
+        run: |
+          conda env update -n asim-test -f conda-environments/github-actions-tests.yml
+        if: steps.cache.outputs.cache-hit != 'true'
+
+      - name: Install Graphviz
+        uses: ts-graphviz/setup-graphviz@v2
+
+      - name: Install Larch v6
+        run: python -m pip install larch6 "pandas<2" pydot
+
+      - name: Install activitysim
+        # installing without dependencies is faster, we trust that all needed dependencies
+        # are in the conda environment defined above.  Also, this avoids pip getting
+        # confused and reinstalling tables (pytables).
+        run: |
+          python -m pip install -e . --no-deps
+
+      - name: Conda checkup
+        run: |
+          conda info -a
+          conda list
+
+      - name: Create Estimation Data
+        run: |
+          python activitysim/examples/example_estimation/notebooks/est_mode_setup.py --household_sample_size 5000
+
+      - name: Test Estimation Notebooks
+        run: |
+          python -m pytest activitysim/examples/example_estimation/notebooks/*.ipynb \
+            --nbmake-timeout=3000 \
+            --ignore=activitysim/examples/example_estimation/notebooks/01_estimation_mode.ipynb
+
+  estimation_edb_creation:
+    needs: foundation
+    env:
+      python-version: "3.10"
+      label: linux-64
+    defaults:
+      run:
+        shell: bash -l {0}
+    name: estimation_edb_creation_test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Miniforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: asim-test
+          python-version: ${{ env.python-version }}
+
+      - name: Set cache date for year and month
+        run: echo "DATE=$(date +'%Y%m')" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.CONDA }}/envs
+          key: ${{ env.label }}-conda-${{ hashFiles('conda-environments/github-actions-tests.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
+        id: cache
+
+      - name: Update environment
+        run: |
+          conda env update -n asim-test -f conda-environments/github-actions-tests.yml
+        if: steps.cache.outputs.cache-hit != 'true'
+
+      - name: Install activitysim
+        # installing without dependencies is faster, we trust that all needed dependencies
+        # are in the conda environment defined above.  Also, this avoids pip getting
+        # confused and reinstalling tables (pytables).
+        run: |
+          python -m pip install -e . --no-deps
+
+      - name: Conda checkup
+        run: |
+          conda info -a
+          conda list
+
+      - name: Test Estimation EDB Creation
+        run: |
+          python -m pytest activitysim/estimation/test/test_edb_creation/test_edb_formation.py --durations=0
 
   develop-docbuild:
     needs: foundation

@@ -192,8 +192,11 @@ def joint_tour_frequency(
         print(f"len(joint_tours) {len(joint_tours)}")
 
         different = False
+        # need to check households as well because the full survey sample may not be used
+        # (e.g. if we set household_sample_size in settings.yaml)
         survey_tours_not_in_tours = survey_tours[
             ~survey_tours.index.isin(joint_tours.index)
+            & survey_tours.household_id.isin(households.index)
         ]
         if len(survey_tours_not_in_tours) > 0:
             print(f"survey_tours_not_in_tours\n{survey_tours_not_in_tours}")
@@ -201,7 +204,7 @@ def joint_tour_frequency(
         tours_not_in_survey_tours = joint_tours[
             ~joint_tours.index.isin(survey_tours.index)
         ]
-        if len(survey_tours_not_in_tours) > 0:
+        if len(tours_not_in_survey_tours) > 0:
             print(f"tours_not_in_survey_tours\n{tours_not_in_survey_tours}")
             different = True
         assert not different

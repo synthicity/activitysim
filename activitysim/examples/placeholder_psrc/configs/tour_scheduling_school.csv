@@ -33,7 +33,7 @@ util_adjacent_window_exists_before_this_departure_hour_second_plus_tour_interact
 util_adjacent_window_exists_after_this_arrival_hour_second_plus_tour_interaction,Adjacent window exists after this arrival hour - second+ tour interaction,"@(df.tour_num > 1) * _adjacent_window_after",coef_adjacent_window_exists_after_this_arrival_hour_second_plus_tour_interaction
 util_remaining_work_school_tours_to_be_scheduled_div_number_of_unscheduled_hours,Remaining work/school tours to be scheduled / number of unscheduled hours,"@((df.tour_count>1) & (df.tour_num == 1)) * 1.0 / tt.remaining_periods_available(df.person_id, df.start, df.end)",coef_remaining_work_school_tours_to_be_scheduled_div_number_of_unscheduled_hours
 util_departure_constants_early_up_to_5,Departure Constants -- Early (up to 5),start < 6,coef_departure_constants_early
-util_departure_constants_am_peak_1 _6,Departure Constants -- AM peak 1 (6),start == 6,coef_departure_constants_am_peak_1
+util_departure_constants_am_peak_1_6,Departure Constants -- AM peak 1 (6),start == 6,coef_departure_constants_am_peak_1
 util_departure_constants_am_peak_2_7,Departure Constants -- AM peak 2 (7),start == 7,coef_departure_constants_am_peak_2
 util_departure_constants_am_peak_3_8,Departure Constants -- AM peak 3 (8),start == 8,coef_departure_constants_am_peak_3
 util_departure_constants_am_peak_4_9,Departure Constants -- AM peak 4 (9),start == 9,coef_departure_constants_am_peak_4

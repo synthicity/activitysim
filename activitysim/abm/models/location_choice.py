@@ -19,7 +19,6 @@ from activitysim.core.interaction_sample import interaction_sample
 from activitysim.core.interaction_sample_simulate import interaction_sample_simulate
 from activitysim.core.util import reindex
 
-
 """
 The school/workplace location model predicts the zones in which various people will
 work or attend school.
@@ -140,7 +139,7 @@ def _location_sample(
 
     sample_size = model_settings.SAMPLE_SIZE
 
-    if estimator:
+    if estimator and model_settings.ESTIMATION_SAMPLE_SIZE >= 0:
         sample_size = model_settings.ESTIMATION_SAMPLE_SIZE
         logger.info(
             f"Estimation mode for {trace_label} using sample size of {sample_size}"
@@ -402,7 +401,7 @@ def location_presample(
 
     # choose a MAZ for each DEST_TAZ choice, choice probability based on MAZ size_term fraction of TAZ total
     maz_choices = tour_destination.choose_MAZ_for_TAZ(
-        state, taz_sample, MAZ_size_terms, trace_label
+        state, taz_sample, MAZ_size_terms, trace_label, model_settings
     )
 
     assert DEST_MAZ in maz_choices
@@ -490,38 +489,6 @@ def run_location_sample(
             chunk_tag=f"{chunk_tag}.sample",
             trace_label=trace_label,
         )
-
-    # adding observed choice to alt set when running in estimation mode
-    if estimator:
-        # grabbing survey values
-        survey_persons = estimation.manager.get_survey_table("persons")
-        if "school_location" in trace_label:
-            survey_choices = survey_persons["school_zone_id"].reset_index()
-        elif ("workplace_location" in trace_label) and ("external" not in trace_label):
-            survey_choices = survey_persons["workplace_zone_id"].reset_index()
-        else:
-            return choices
-        survey_choices.columns = ["person_id", "alt_dest"]
-        survey_choices = survey_choices[
-            survey_choices["person_id"].isin(choices.index)
-            & (survey_choices.alt_dest > 0)
-        ]
-        # merging survey destination into table if not available
-        joined_data = survey_choices.merge(
-            choices, on=["person_id", "alt_dest"], how="left", indicator=True
-        )
-        missing_rows = joined_data[joined_data["_merge"] == "left_only"]
-        missing_rows["pick_count"] = 1
-        if len(missing_rows) > 0:
-            new_choices = missing_rows[
-                ["person_id", "alt_dest", "prob", "pick_count"]
-            ].set_index("person_id")
-            choices = choices.append(new_choices, ignore_index=False).sort_index()
-            # making probability the mean of all other sampled destinations by person
-            # FIXME is there a better way to do this? Does this even matter for estimation?
-            choices["prob"] = choices["prob"].fillna(
-                choices.groupby("person_id")["prob"].transform("mean")
-            )
 
     return choices
 
